@@ -6,28 +6,29 @@
 #  name                   :string(255)
 #  path                   :string(255)
 #  description            :text
-#  created_at             :datetime
-#  updated_at             :datetime
+#  created_at             :datetime         not null
+#  updated_at             :datetime         not null
 #  creator_id             :integer
-#  default_branch         :string(255)
 #  issues_enabled         :boolean          default(TRUE), not null
 #  wall_enabled           :boolean          default(TRUE), not null
 #  merge_requests_enabled :boolean          default(TRUE), not null
 #  wiki_enabled           :boolean          default(TRUE), not null
 #  namespace_id           :integer
-#  public                 :boolean          default(FALSE), not null
 #  issues_tracker         :string(255)      default("gitlab"), not null
 #  issues_tracker_id      :string(255)
 #  snippets_enabled       :boolean          default(TRUE), not null
 #  last_activity_at       :datetime
 #  imported               :boolean          default(FALSE), not null
+#  import_url             :string(255)
+#  visibility_level       :integer          default(0), not null
+#  archived               :boolean          default(FALSE), not null
 #
 
 require 'spec_helper'
 
 describe Project do
-  before(:each) { enable_observers }
-  after(:each) { disable_observers }
+  before { enable_observers }
+  after { disable_observers }
 
   describe "Associations" do
     it { should belong_to(:group) }
@@ -57,19 +58,20 @@ describe Project do
     let!(:project) { create(:project) }
 
     it { should validate_presence_of(:name) }
-    it { should validate_uniqueness_of(:name) }
+    it { should validate_uniqueness_of(:name).scoped_to(:namespace_id) }
     it { should ensure_length_of(:name).is_within(0..255) }
 
     it { should validate_presence_of(:path) }
-    it { should validate_uniqueness_of(:path) }
+    it { should validate_uniqueness_of(:path).scoped_to(:namespace_id) }
     it { should ensure_length_of(:path).is_within(0..255) }
     it { should ensure_length_of(:description).is_within(0..2000) }
     it { should validate_presence_of(:creator) }
     it { should ensure_length_of(:issues_tracker_id).is_within(0..255) }
+    it { should validate_presence_of(:namespace) }
 
     it "should not allow new projects beyond user limits" do
       project2 = build(:project)
-      project2.stub(:creator).and_return(double(can_create_project?: false, projects_limit: 0))
+      project2.stub(:creator).and_return(double(can_create_project?: false, projects_limit: 0).as_null_object)
       project2.should_not be_valid
       project2.errors[:limit_reached].first.should match(/Your own projects limit is 0/)
     end
@@ -83,7 +85,6 @@ describe Project do
     it { should respond_to(:execute_hooks) }
     it { should respond_to(:transfer) }
     it { should respond_to(:name_with_namespace) }
-    it { should respond_to(:namespace_owner) }
     it { should respond_to(:owner) }
     it { should respond_to(:path_with_namespace) }
   end
@@ -96,6 +97,11 @@ describe Project do
   it "returns the full web URL for this repo" do
     project = Project.new(path: "somewhere")
     project.web_url.should == "#{Gitlab.config.gitlab.url}/somewhere"
+  end
+
+  it "returns the web URL without the protocol for this repo" do
+    project = Project.new(path: "somewhere")
+    project.web_url_without_protocol.should == "#{Gitlab.config.gitlab.host}/somewhere"
   end
 
   describe "last_activity methods" do
@@ -131,17 +137,17 @@ describe Project do
 
     it "should close merge request if last commit from source branch was pushed to target branch" do
       @merge_request.reloaded_commits
-      @merge_request.last_commit.id.should == "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a"
-      project.update_merge_requests("8716fc78f3c65bbf7bcf7b574febd583bc5d2812", "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a", "refs/heads/stable", @key.user)
+      @merge_request.last_commit.id.should == "b1e6a9dbf1c85e6616497a5e7bad9143a4bd0828"
+      project.update_merge_requests("8716fc78f3c65bbf7bcf7b574febd583bc5d2812", "b1e6a9dbf1c85e6616497a5e7bad9143a4bd0828", "refs/heads/stable", @key.user)
       @merge_request.reload
       @merge_request.merged?.should be_true
     end
 
     it "should update merge request commits with new one if pushed to source branch" do
       @merge_request.last_commit.should == nil
-      project.update_merge_requests("8716fc78f3c65bbf7bcf7b574febd583bc5d2812", "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a", "refs/heads/master", @key.user)
+      project.update_merge_requests("8716fc78f3c65bbf7bcf7b574febd583bc5d2812", "b1e6a9dbf1c85e6616497a5e7bad9143a4bd0828", "refs/heads/master", @key.user)
       @merge_request.reload
-      @merge_request.last_commit.id.should == "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a"
+      @merge_request.last_commit.id.should == "b1e6a9dbf1c85e6616497a5e7bad9143a4bd0828"
     end
   end
 
@@ -156,15 +162,6 @@ describe Project do
       it { Project.find_with_namespace('gitlab/gitlab-ci').should == @project }
       it { Project.find_with_namespace('gitlab-ci').should be_nil }
     end
-
-    context 'w/o namespace' do
-      before do
-        @project = create(:project, name: 'gitlab-ci')
-      end
-
-      it { Project.find_with_namespace('gitlab-ci').should == @project }
-      it { Project.find_with_namespace('gitlab/gitlab-ci').should be_nil }
-    end
   end
 
   describe :to_param do
@@ -175,14 +172,6 @@ describe Project do
       end
 
       it { @project.to_param.should == "gitlab/gitlab-ci" }
-    end
-
-    context 'w/o namespace' do
-      before do
-        @project = create(:project, name: 'gitlab-ci')
-      end
-
-      it { @project.to_param.should == "gitlab-ci" }
     end
   end
 
@@ -201,11 +190,11 @@ describe Project do
     let(:ext_project) { create(:redmine_project) }
 
     it "should be true or if used internal tracker and issue exists" do
-      project.issue_exists?(existed_issue.id).should be_true
+      project.issue_exists?(existed_issue.iid).should be_true
     end
 
     it "should be false or if used internal tracker and issue not exists" do
-      project.issue_exists?(not_existed_issue.id).should be_false
+      project.issue_exists?(not_existed_issue.iid).should be_false
     end
 
     it "should always be true if used other tracker" do

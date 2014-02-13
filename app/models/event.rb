@@ -18,7 +18,7 @@ class Event < ActiveRecord::Base
   attr_accessible :project, :action, :data, :author_id, :project_id,
                   :target_id, :target_type
 
-  default_scope where("author_id IS NOT NULL")
+  default_scope { where.not(author_id: nil) }
 
   CREATED   = 1
   UPDATED   = 2
@@ -168,7 +168,7 @@ class Event < ActiveRecord::Base
   end
 
   def valid_push?
-    data[:ref]
+    data[:ref] && ref_name.present?
   rescue => ex
     false
   end
@@ -223,7 +223,7 @@ class Event < ActiveRecord::Base
 
   # Max 20 commits from push DESC
   def commits
-    @commits ||= data[:commits].reverse
+    @commits ||= (data[:commits] || []).reverse
   end
 
   def commits_count
@@ -256,6 +256,10 @@ class Event < ActiveRecord::Base
     target.commit_id
   end
 
+  def target_iid
+    target.respond_to?(:iid) ? target.iid : target_id
+  end
+
   def note_short_commit_id
     note_commit_id[0..8]
   end
@@ -278,6 +282,14 @@ class Event < ActiveRecord::Base
     else
       target.noteable_id.to_s
     end
+  end
+
+  def note_target_iid
+    if note_target.respond_to?(:iid)
+      note_target.iid
+    else
+      note_target_id
+    end.to_s
   end
 
   def wall_note?

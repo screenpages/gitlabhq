@@ -47,13 +47,12 @@ class ProjectSnippets < Spinach::FeatureSteps
     end
   end
 
-  And 'I click link "Destroy"' do
-    click_link "Destroy"
+  And 'I click link "Remove Snippet"' do
+    click_link "Remove snippet"
   end
 
   And 'I submit new snippet "Snippet three"' do
     fill_in "project_snippet_title", :with => "Snippet three"
-    select "forever", :from => "project_snippet_expires_at"
     fill_in "project_snippet_file_name", :with => "my_snippet.rb"
     within('.file-editor') do
       find(:xpath, "//input[@id='project_snippet_content']").set 'Content of snippet three'

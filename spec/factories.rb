@@ -15,8 +15,10 @@ FactoryGirl.define do
     email { Faker::Internet.email }
     name
     sequence(:username) { |n| "#{Faker::Internet.user_name}#{n}" }
-    password "123456"
+    password "12345678"
     password_confirmation { password }
+    confirmed_at { Time.now }
+    confirmation_token { nil }
 
     trait :admin do
       admin true
@@ -28,6 +30,7 @@ FactoryGirl.define do
   factory :project do
     sequence(:name) { |n| "project#{n}" }
     path { name.downcase.gsub(/\s/, '_') }
+    namespace
     creator
 
     trait :source do
@@ -63,6 +66,7 @@ FactoryGirl.define do
 
     after :create do |project|
       TestEnv.clear_repo_dir(project.namespace, project.path)
+      TestEnv.reset_satellite_dir
       TestEnv.create_repo(project.namespace, project.path)
     end
   end
@@ -70,7 +74,6 @@ FactoryGirl.define do
   factory :group do
     sequence(:name) { |n| "group#{n}" }
     path { name.downcase.gsub(/\s/, '_') }
-    owner
     type 'Group'
   end
 

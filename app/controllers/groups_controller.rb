@@ -10,6 +10,8 @@ class GroupsController < ApplicationController
   # Load group projects
   before_filter :projects, except: [:new, :create]
 
+  before_filter :default_filter, only: [:issues, :merge_requests]
+
   layout :determine_layout
 
   before_filter :set_title, only: [:new, :create]
@@ -21,9 +23,9 @@ class GroupsController < ApplicationController
   def create
     @group = Group.new(params[:group])
     @group.path = @group.name.dup.parameterize if @group.name
-    @group.owner = current_user
 
     if @group.save
+      @group.add_owner(current_user)
       redirect_to @group, notice: 'Group was successfully created.'
     else
       render action: "new"
@@ -31,28 +33,26 @@ class GroupsController < ApplicationController
   end
 
   def show
-    @events = Event.in_projects(project_ids).limit(20).offset(params[:offset] || 0)
+    @events = Event.in_projects(project_ids)
+    @events = event_filter.apply_filter(@events)
+    @events = @events.limit(20).offset(params[:offset] || 0)
     @last_push = current_user.recent_push
 
     respond_to do |format|
       format.html
-      format.js
+      format.json { pager_json("events/_events", @events.count) }
       format.atom { render layout: false }
     end
   end
 
-  # Get authored or assigned open merge requests
   def merge_requests
-    @merge_requests = current_user.cared_merge_requests.of_group(@group)
-    @merge_requests = FilterContext.new(@merge_requests, params).execute
-    @merge_requests = @merge_requests.recent.page(params[:page]).per(20)
+    @merge_requests = FilteringService.new.execute(MergeRequest, current_user, params)
+    @merge_requests = @merge_requests.page(params[:page]).per(20)
   end
 
-  # Get only assigned issues
   def issues
-    @issues = current_user.assigned_issues.of_group(@group)
-    @issues = FilterContext.new(@issues, params).execute
-    @issues = @issues.recent.page(params[:page]).per(20)
+    @issues = FilteringService.new.execute(Issue, current_user, params)
+    @issues = @issues.page(params[:page]).per(20)
     @issues = @issues.includes(:author, :project)
 
     respond_to do |format|
@@ -71,15 +71,7 @@ class GroupsController < ApplicationController
   end
 
   def update
-    group_params = params[:group].dup
-    owner_id = group_params.delete(:owner_id)
-
-    if owner_id
-      @group.owner = User.find(owner_id)
-      @group.save
-    end
-
-    if @group.update_attributes(group_params)
+    if @group.update_attributes(params[:group])
       redirect_to @group, notice: 'Group was successfully updated.'
     else
       render action: "edit"
@@ -108,7 +100,7 @@ class GroupsController < ApplicationController
 
   # Dont allow unauthorized access to group
   def authorize_read_group!
-    unless projects.present? or can?(current_user, :manage_group, @group)
+    unless @group and (projects.present? or can?(current_user, :read_group, @group))
       return render_404
     end
   end
@@ -135,5 +127,11 @@ class GroupsController < ApplicationController
     else
       'group'
     end
+  end
+
+  def default_filter
+    params[:scope] = 'assigned-to-me' if params[:scope].blank?
+    params[:state] = 'opened' if params[:state].blank?
+    params[:group_id] = @group.id
   end
 end

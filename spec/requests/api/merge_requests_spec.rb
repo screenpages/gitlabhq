@@ -2,9 +2,10 @@ require "spec_helper"
 
 describe API::API do
   include ApiHelpers
-
+  before(:each) { ActiveRecord::Base.observers.enable(:user_observer) }
+  after(:each) { ActiveRecord::Base.observers.disable(:user_observer) }
   let(:user) { create(:user) }
-  let!(:project) {create(:project_with_code, creator_id: user.id) }
+  let!(:project) {create(:project_with_code, creator_id: user.id, namespace: user.namespace) }
   let!(:merge_request) { create(:merge_request, author: user, assignee: user, source_project: project, target_project: project, title: "Test") }
   before {
     project.team << [user, :reporters]
@@ -33,6 +34,7 @@ describe API::API do
       get api("/projects/#{project.id}/merge_request/#{merge_request.id}", user)
       response.status.should == 200
       json_response['title'].should == merge_request.title
+      json_response['iid'].should == merge_request.iid
     end
 
     it "should return a 404 error if merge_request_id not found" do

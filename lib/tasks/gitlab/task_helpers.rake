@@ -2,6 +2,16 @@ module Gitlab
   class TaskAbortedByUserError < StandardError; end
 end
 
+unless STDOUT.isatty
+  module Colored
+    extend self
+
+    def colorize(string, options={})
+      string
+    end
+  end
+end
+
 namespace :gitlab do
 
   # Ask if the user wants to continue
@@ -80,7 +90,11 @@ namespace :gitlab do
   end
 
   def gid_for(group_name)
-    Etc.getgrnam(group_name).gid
+    begin
+      Etc.getgrnam(group_name).gid
+    rescue ArgumentError # no group
+      "group #{group_name} doesn't exist"
+    end
   end
 
   def warn_user_is_not_gitlab

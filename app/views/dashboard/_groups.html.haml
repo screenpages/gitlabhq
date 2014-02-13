@@ -1,11 +1,11 @@
 .ui-box
   .title.clearfix
-    = search_field_tag :filter_group, nil, placeholder: 'Filter by name', class: 'dash-filter'
+    = search_field_tag :filter_group, nil, placeholder: 'Filter by name', class: 'dash-filter form-control'
     - if current_user.can_create_group?
       %span.pull-right
-        = link_to new_group_path, class: "btn" do
+        = link_to new_group_path, class: "btn btn-new" do
           %i.icon-plus
-          New Group
+          New group
   %ul.well-list.dash-list
     - groups.each do |group|
       %li.group-row
@@ -14,9 +14,6 @@
             = truncate(group.name, length: 35)
           %span.arrow
             %i.icon-angle-right
-          %span.owner-info
-            %span Owner:
-            %span.owner= group.owner_name
     - if groups.blank?
       %li
         %h3.nothing_here_message You have no groups yet.

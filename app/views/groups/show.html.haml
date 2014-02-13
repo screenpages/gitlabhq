@@ -1,17 +1,18 @@
 .dashboard
-  .activities.span8
+  .activities.col-md-8.hidden-sm
     = render "events/event_last_push", event: @last_push
     = link_to dashboard_path, class: 'btn btn-tiny' do
       &larr; To dashboard
     &nbsp;
     %span.cgray You will only see events from projects in this group
     %hr
+    = render 'shared/event_filter'
     - if @events.any?
       .content_list
     - else
       %p.nothing_here_message Project activity will be displayed here
     .loading.hide
-  .side.span4
+  .side.col-md-4
     - if @group.description.present?
       .description-block
         = @group.description

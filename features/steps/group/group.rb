@@ -10,8 +10,9 @@ class Groups < Spinach::FeatureSteps
   end
 
   And 'I have group with projects' do
-    @group   = create(:group, owner: current_user)
-    @project = create(:project, group: @group)
+    @group   = create(:group)
+    @group.add_owner(current_user)
+    @project = create(:project, namespace: @group)
     @event   = create(:closed_issue_event, project: @project)
 
     @project.team << [current_user, :master]
@@ -39,7 +40,7 @@ class Groups < Spinach::FeatureSteps
 
   And 'I select user "John" from list with role "Reporter"' do
     user = User.find_by_name("John")
-    within ".new_users_group" do
+    within ".users-group-form" do
       select2(user.id, from: "#user_ids", multiple: true)
       select "Reporter", from: "group_access"
     end
@@ -67,7 +68,7 @@ class Groups < Spinach::FeatureSteps
   end
 
   When 'I click new group link' do
-    click_link "New Group"
+    click_link "New group"
   end
 
   And 'submit form with new group info' do

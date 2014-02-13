@@ -3,7 +3,7 @@ class ProjectForkedMergeRequests < Spinach::FeatureSteps
   include SharedProject
   include SharedNote
   include SharedPaths
-  include ChosenHelper
+  include Select2Helper
 
   step 'I am a member of project "Shop"' do
     @project = Project.find_by_name "Shop"
@@ -42,14 +42,14 @@ class ProjectForkedMergeRequests < Spinach::FeatureSteps
   end
 
   step 'I fill out a "Merge Request On Forked Project" merge request' do
-    chosen @forked_project.id, from: "#merge_request_source_project_id"
-    chosen @project.id, from: "#merge_request_target_project_id"
+    select2 @forked_project.id, from: "#merge_request_source_project_id"
+    select2 @project.id, from: "#merge_request_target_project_id"
 
     find(:select, "merge_request_source_project_id", {}).value.should == @forked_project.id.to_s
     find(:select, "merge_request_target_project_id", {}).value.should == @project.id.to_s
 
-    chosen "master", from: "#merge_request_source_branch"
-    chosen "stable", from: "#merge_request_target_branch"
+    select2 "master", from: "#merge_request_source_branch"
+    select2 "stable", from: "#merge_request_target_branch"
 
     find(:select, "merge_request_source_branch", {}).value.should == 'master'
     find(:select, "merge_request_target_branch", {}).value.should == 'stable'
@@ -175,10 +175,9 @@ class ProjectForkedMergeRequests < Spinach::FeatureSteps
     @project ||= Project.find_by_name!("Shop")
   end
 
-  #Verify a link is generated against the correct project
+  # Verify a link is generated against the correct project
   def verify_commit_link(container_div, container_project)
-    #This should force a wait for the javascript to execute
-    find(:div,container_div).should have_css ".browse_code_link_holder"
+    # This should force a wait for the javascript to execute
     find(:div,container_div).find(".commit_short_id")['href'].should have_content "#{container_project.path_with_namespace}/commit"
   end
 end

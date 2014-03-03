@@ -219,6 +219,7 @@ class Projects::MergeRequestsController < Projects::ApplicationController
 
     @allowed_to_merge = allowed_to_merge?
     @show_merge_controls = @merge_request.opened? && @commits.any? && @allowed_to_merge
+    @not_show_branch_removal = @merge_request.disallow_source_branch_removal? || !current_user.is_admin?
   end
 
   def allowed_to_merge?

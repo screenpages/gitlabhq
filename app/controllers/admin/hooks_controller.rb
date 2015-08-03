@@ -5,7 +5,7 @@ class Admin::HooksController < Admin::ApplicationController
   end
 
   def create
-    @hook = SystemHook.new(params[:hook])
+    @hook = SystemHook.new(hook_params)
 
     if @hook.save
       redirect_to admin_hooks_path, notice: 'Hook was successfully created.'
@@ -33,8 +33,12 @@ class Admin::HooksController < Admin::ApplicationController
       owner_name: "Someone",
       owner_email: "example@gitlabhq.com"
     }
-    @hook.execute(data)
+    @hook.execute(data, 'system_hooks')
 
     redirect_to :back
+  end
+
+  def hook_params
+    params.require(:hook).permit(:url)
   end
 end

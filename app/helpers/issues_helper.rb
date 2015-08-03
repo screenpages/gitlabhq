@@ -1,10 +1,5 @@
 module IssuesHelper
-  def project_issues_filter_path project, params = {}
-    params[:f] ||= cookies['issue_filter']
-    project_issues_path project, params
-  end
-
-  def issue_css_classes issue
+  def issue_css_classes(issue)
     classes = "issue"
     classes << " closed" if issue.closed?
     classes << " today" if issue.today?
@@ -18,75 +13,91 @@ module IssuesHelper
     OpenStruct.new(id: 0, title: 'None (backlog)', name: 'Unassigned')
   end
 
-  def issues_filter
-    {
-      all: "all",
-      closed: "closed",
-      to_me: "assigned-to-me",
-      by_me: "created-by-me",
-      open: "open"
-    }
-  end
+  def url_for_project_issues(project = @project, options = {})
+    return '' if project.nil?
 
-  def issues_active_milestones
-    @project.milestones.active.order("id desc").all
-  end
-
-  def url_for_project_issues
-    return "" if @project.nil?
-
-    if @project.used_default_issues_tracker?
-      project_issues_filter_path(@project)
+    if options[:only_path]
+      project.issues_tracker.project_path
     else
-      url = Gitlab.config.issues_tracker[@project.issues_tracker]["project_url"]
-      url.gsub(':project_id', @project.id.to_s)
-         .gsub(':issues_tracker_id', @project.issues_tracker_id.to_s)
+      project.issues_tracker.project_url
     end
   end
 
-  def url_for_new_issue
-    return "" if @project.nil?
+  def url_for_new_issue(project = @project, options = {})
+    return '' if project.nil?
 
-    if @project.used_default_issues_tracker?
-      url = new_project_issue_path project_id: @project
+    if options[:only_path]
+      project.issues_tracker.new_issue_path
     else
-      url = Gitlab.config.issues_tracker[@project.issues_tracker]["new_issue_url"]
-      url.gsub(':project_id', @project.id.to_s)
-        .gsub(':issues_tracker_id', @project.issues_tracker_id.to_s)
+      project.issues_tracker.new_issue_url
     end
   end
 
-  def url_for_issue(issue_id)
-    return "" if @project.nil?
+  def url_for_issue(issue_iid, project = @project, options = {})
+    return '' if project.nil?
 
-    if @project.used_default_issues_tracker?
-      url = project_issue_url project_id: @project, id: issue_id
+    if options[:only_path]
+      project.issues_tracker.issue_path(issue_iid)
     else
-      url = Gitlab.config.issues_tracker[@project.issues_tracker]["issues_url"]
-      url.gsub(':id', issue_id.to_s)
-        .gsub(':project_id', @project.id.to_s)
-        .gsub(':issues_tracker_id', @project.issues_tracker_id.to_s)
+      project.issues_tracker.issue_url(issue_iid)
     end
   end
 
-  def title_for_issue(issue_id)
-    return "" if @project.nil?
+  def issue_timestamp(issue)
+    # Shows the created at time and the updated at time if different
+    ts = time_ago_with_tooltip(issue.created_at, placement: 'bottom', html_class: 'note_created_ago')
+    if issue.updated_at != issue.created_at
+      ts << capture_haml do
+        haml_tag :span do
+          haml_concat '&middot;'
+          haml_concat icon('edit', title: 'edited')
+          haml_concat time_ago_with_tooltip(issue.updated_at, placement: 'bottom', html_class: 'issue_edited_ago')
+        end
+      end
+    end
+    ts.html_safe
+  end
 
-    if @project.used_default_issues_tracker? && issue = @project.issues.where(id: issue_id).first
-      issue.title
+  def bulk_update_milestone_options
+    options_for_select([['None (backlog)', -1]]) +
+        options_from_collection_for_select(project_active_milestones, 'id',
+                                           'title', params[:milestone_id])
+  end
+
+  def milestone_options(object)
+    options_from_collection_for_select(object.project.milestones.active,
+                                       'id', 'title', object.milestone_id)
+  end
+
+  def issue_box_class(item)
+    if item.respond_to?(:expired?) && item.expired?
+      'issue-box-expired'
+    elsif item.respond_to?(:merged?) && item.merged?
+      'issue-box-merged'
+    elsif item.closed?
+      'issue-box-closed'
     else
-      ""
+      'issue-box-open'
     end
   end
 
-  def project_issues_with_filter_path(project, opts)
-    default_opts = {
-      status: params[:status],
-      label_name: params[:label_name],
-      milestone_id: params[:milestone_id],
-      assignee_id: params[:assignee_id],
-    }
-
-    project_issues_path(@project, default_opts.merge(opts))
+  def issue_to_atom(xml, issue)
+    xml.entry do
+      xml.id      namespace_project_issue_url(issue.project.namespace,
+                                              issue.project, issue)
+      xml.link    href: namespace_project_issue_url(issue.project.namespace,
+                                                    issue.project, issue)
+      xml.title   truncate(issue.title, length: 80)
+      xml.updated issue.created_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+      xml.media   :thumbnail, width: "40", height: "40", url: avatar_icon(issue.author_email)
+      xml.author do |author|
+        xml.name issue.author_name
+        xml.email issue.author_email
+      end
+      xml.summary issue.title
+    end
   end
+
+  # Required for Gitlab::Markdown::IssueReferenceFilter
+  module_function :url_for_issue
 end

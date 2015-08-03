@@ -4,18 +4,13 @@
   - if Gitlab.config.gitlab.signup_enabled
     Your account has been created successfully.
   - else
-    The Administrator created an account for you. Now you are a member of company GitLab application.
+    The Administrator created an account for you. Now you are a member of the company GitLab application.
 %p
   login..........................................
   %code= @user['email']
 
 - if @user.created_by_id
   %p
-    password..................................
-    %code= @password
-
+    = link_to "Click here to set your password", edit_password_url(@user, reset_password_token: @token)
   %p
-    You will be forced to change this password immediately after login.
-
-%p
-  = link_to "Click here to login", root_url
+    = reset_token_expire_message

@@ -1,19 +1,17 @@
-class Wikis
+class @Wikis
   constructor: ->
-    modal = $('#modal-new-wiki').modal({modal: true, show:false})
-
-    $('.add-new-wiki').bind "click", ->
-      modal.show()
-
-    $('.build-new-wiki').bind "click", ->
+    $('.build-new-wiki').bind "click", (e) ->
+      $('[data-error~=slug]').addClass("hidden")
+      $('p.hint').show()
       field = $('#new_wiki_path')
+      valid_slug_pattern = /^[\w\/-]+$/
+
       slug = field.val()
-      path = field.attr('data-wikis-path')
-
-      if(slug.length > 0)
-        location.href = path + "/" + slug
-
-    $('.modal-header .close').bind "click", ->
-      modal.hide()
-
-@Wikis = Wikis
+      if slug.match valid_slug_pattern
+        path = field.attr('data-wikis-path')
+        if(slug.length > 0)
+          location.href = path + "/" + slug
+      else
+        e.preventDefault()
+        $('p.hint').hide()
+        $('[data-error~=slug]').removeClass("hidden")

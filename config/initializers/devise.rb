@@ -1,13 +1,14 @@
 # Use this hook to configure devise mailer, warden hooks and so forth. The first
 # four configuration values can also be set straight in your models.
 Devise.setup do |config|
-  # ==> Mailer Configuration
-  # Configure the e-mail address which will be shown in Devise::Mailer,
-  # note that it will be overwritten if you use your own mailer class with default "from" parameter.
-  config.mailer_sender = Gitlab.config.gitlab.email_from
+  config.warden do |manager|
+    manager.default_strategies(scope: :user).unshift :two_factor_authenticatable
+    manager.default_strategies(scope: :user).unshift :two_factor_backupable
+  end
 
+  # ==> Mailer Configuration
   # Configure the class responsible to send e-mails.
-  # config.mailer = "Devise::Mailer"
+  config.mailer = "DeviseMailer"
 
   # ==> ORM configuration
   # Load and configure the ORM. Supports :active_record (default) and
@@ -54,6 +55,8 @@ Devise.setup do |config|
   # The realm used in Http Basic Authentication. "Application" by default.
   # config.http_authentication_realm = "Application"
 
+  config.reconfirmable = true
+
   # It will change confirmation, password recovery and other workflows
   # to behave the same regardless if the e-mail provided was right or wrong.
   # Does not affect registerable.
@@ -72,13 +75,13 @@ Devise.setup do |config|
   # config.pepper = "2ef62d549c4ff98a5d3e0ba211e72cff592060247e3bbbb9f499af1222f876f53d39b39b823132affb32858168c79c1d7741d26499901b63c6030a42129924ef"
 
   # ==> Configuration for :confirmable
-  # The time you want to give your user to confirm his account. During this time
-  # he will be able to access your application without confirming. Default is 0.days
-  # When confirm_within is zero, the user won't be able to sign in without confirming.
+  # The time you want to give a user to confirm their account. During this time
+  # they will be able to access your application without confirming. Default is 0.days
+  # When allow_unconfirmed_access_for is zero, the user won't be able to sign in without confirming.
   # You can use this to let your user access some features of your application
   # without confirming the account, but blocking it after a certain period
   # (ie 2 days).
-  # config.confirm_within = 2.days
+  # config.allow_unconfirmed_access_for = 2.days
 
   # Defines which key will be used when confirming an account
   # config.confirmation_keys = [ :email ]
@@ -99,7 +102,7 @@ Devise.setup do |config|
 
   # ==> Configuration for :validatable
   # Range for password length. Default is 6..128.
-  config.password_length = 6..128
+  config.password_length = 8..128
 
   # Email regex used to validate email formats. It simply asserts that
   # an one (and only one) @ exists in the given string. This is mainly
@@ -142,7 +145,8 @@ Devise.setup do |config|
   # Time interval you can reset your password with a reset password key.
   # Don't put a too small interval or your users won't have the time to
   # change their passwords.
-  config.reset_password_within = 2.hours
+  # When someone else invites you to GitLab this time is also used so it should be pretty long.
+  config.reset_password_within = 2.days
 
   # ==> Configuration for :encryptable
   # Allow you to use another encryption algorithm besides bcrypt (default). You can use
@@ -151,10 +155,6 @@ Devise.setup do |config|
   # and :restful_authentication_sha1 (then you should set stretches to 10, and copy
   # REST_AUTH_SITE_KEY to pepper)
   # config.encryptor = :sha512
-
-  # ==> Configuration for :token_authenticatable
-  # Defines name of the authentication token params key
-  config.token_authentication_key = :private_token
 
   # Authentication through token does not store user in session and needs
   # to be supplied on each request. Useful if you are using the token as API token.
@@ -205,27 +205,42 @@ Devise.setup do |config|
   #   manager.default_strategies(scope: :user).unshift :some_external_strategy
   # end
 
-  if Gitlab.config.ldap.enabled
-    config.omniauth :ldap,
-      host:     Gitlab.config.ldap['host'],
-      base:     Gitlab.config.ldap['base'],
-      uid:      Gitlab.config.ldap['uid'],
-      port:     Gitlab.config.ldap['port'],
-      method:   Gitlab.config.ldap['method'],
-      bind_dn:  Gitlab.config.ldap['bind_dn'],
-      password: Gitlab.config.ldap['password']
+  if Gitlab::LDAP::Config.enabled?
+    Gitlab.config.ldap.servers.values.each do |server|
+      if server['allow_username_or_email_login']
+        email_stripping_proc = ->(name) {name.gsub(/@.*\z/,'')}
+      else
+        email_stripping_proc = ->(name) {name}
+      end
+
+      config.omniauth server['provider_name'],
+        host:     server['host'],
+        base:     server['base'],
+        uid:      server['uid'],
+        port:     server['port'],
+        method:   server['method'],
+        bind_dn:  server['bind_dn'],
+        password: server['password'],
+        name_proc: email_stripping_proc
+    end
   end
 
   Gitlab.config.omniauth.providers.each do |provider|
+    provider_arguments = []
+
+    %w[app_id app_secret].each do |argument|
+      provider_arguments << provider[argument] if provider[argument]
+    end
+
     case provider['args']
     when Array
       # An Array from the configuration will be expanded.
-      config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret'], *provider['args']
+      provider_arguments.concat provider['args']
     when Hash
       # A Hash from the configuration will be passed as is.
-      config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret'], provider['args']
-    else
-      config.omniauth provider['name'].to_sym, provider['app_id'], provider['app_secret']
+      provider_arguments << provider['args']
     end
+
+    config.omniauth provider['name'].to_sym, *provider_arguments
   end
 end

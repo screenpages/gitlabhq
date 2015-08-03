@@ -1,22 +1,26 @@
-$ ->
-  $('.edit_user .application-theme input, .edit_user .code-preview-theme input').click ->
-    # Hide any previous submission feedback
-    $('.edit_user .update-feedback').hide()
+class @Profile
+  constructor: ->
+    # Automatically submit the Preferences form when any of its radio buttons change
+    $('.js-preferences-form').on 'change.preference', 'input[type=radio]', ->
+      $(this).parents('form').submit()
 
-    # Submit the form
-    $('.edit_user').submit()
+    $('.update-username form').on 'ajax:before', ->
+      $('.loading-gif').show()
+      $(this).find('.update-success').hide()
+      $(this).find('.update-failed').hide()
 
-    # Go up the hierarchy and show the corresponding submission feedback element
-    $(@).closest('fieldset').find('.update-feedback').show('highlight', {color: '#DFF0D8'}, 500)
+    $('.update-username form').on 'ajax:complete', ->
+      $(this).find('.btn-save').enable()
+      $(this).find('.loading-gif').hide()
 
-  $('.update-username form').on 'ajax:before', ->
-    $('.loading-gif').show()
-    $(this).find('.update-success').hide()
-    $(this).find('.update-failed').hide()
+    $('.update-notifications').on 'ajax:complete', ->
+      $(this).find('.btn-save').enable()
 
-  $('.update-username form').on 'ajax:complete', ->
-    $(this).find('.btn-save').enableButton()
-    $(this).find('.loading-gif').hide()
-  
-  $('.update-notifications').on 'ajax:complete', ->
-    $(this).find('.btn-save').enableButton()
+    $('.js-choose-user-avatar-button').bind "click", ->
+      form = $(this).closest("form")
+      form.find(".js-user-avatar-input").click()
+
+    $('.js-user-avatar-input').bind "change", ->
+      form = $(this).closest("form")
+      filename = $(this).val().replace(/^.*[\\\/]/, '')
+      form.find(".js-avatar-filename").text(filename)

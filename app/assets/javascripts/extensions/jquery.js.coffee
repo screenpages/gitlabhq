@@ -1,9 +1,11 @@
-$.fn.showAndHide = ->
-  $(@).show().
-    delay(3000).
-    fadeOut()
+# Disable an element and add the 'disabled' Bootstrap class
+$.fn.extend disable: ->
+  $(@)
+    .attr('disabled', 'disabled')
+    .addClass('disabled')
 
-$.fn.enableButton = ->
-  $(@).removeAttr('disabled').
-    removeClass('disabled')
-
+# Enable an element and remove the 'disabled' Bootstrap class
+$.fn.extend enable: ->
+  $(@)
+    .removeAttr('disabled')
+    .removeClass('disabled')

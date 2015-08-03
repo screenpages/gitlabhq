@@ -2,48 +2,60 @@ include ActionDispatch::TestProcess
 
 FactoryGirl.define do
   sequence :sentence, aliases: [:title, :content] do
-    Faker::Lorem.sentence
+    FFaker::Lorem.sentence
   end
 
-  sequence :name, aliases: [:file_name] do
-    Faker::Name.name
+  sequence :name do
+    FFaker::Name.name
   end
 
-  sequence(:url) { Faker::Internet.uri('http') }
+  sequence :file_name do
+    FFaker::Internet.user_name
+  end
+
+  sequence(:url) { FFaker::Internet.uri('http') }
 
   factory :user, aliases: [:author, :assignee, :owner, :creator] do
-    email { Faker::Internet.email }
+    email { FFaker::Internet.email }
     name
-    sequence(:username) { |n| "#{Faker::Internet.user_name}#{n}" }
-    password "123456"
-    password_confirmation { password }
+    sequence(:username) { |n| "#{FFaker::Internet.user_name}#{n}" }
+    password "12345678"
+    confirmed_at { Time.now }
+    confirmation_token { nil }
+    can_create_group true
 
     trait :admin do
       admin true
     end
 
+    trait :two_factor do
+      before(:create) do |user|
+        user.two_factor_enabled = true
+        user.otp_secret = User.generate_otp_secret(32)
+        user.generate_otp_backup_codes!
+      end
+    end
+
+    factory :omniauth_user do
+      ignore do
+        extern_uid '123456'
+        provider 'ldapmain'
+      end
+
+      after(:create) do |user, evaluator|
+        user.identities << create(:identity,
+          provider: evaluator.provider,
+          extern_uid: evaluator.extern_uid
+        )
+      end
+    end
+
     factory :admin, traits: [:admin]
-  end
-
-  factory :project do
-    sequence(:name) { |n| "project#{n}" }
-    path { name.downcase.gsub(/\s/, '_') }
-    creator
-  end
-
-  factory :redmine_project, parent: :project do
-    issues_tracker { "redmine" }
-    issues_tracker_id { "project_name_in_redmine" }
-  end
-
-  factory :project_with_code, parent: :project do
-    path { 'gitlabhq' }
   end
 
   factory :group do
     sequence(:name) { |n| "group#{n}" }
     path { name.downcase.gsub(/\s/, '_') }
-    owner
     type 'Group'
   end
 
@@ -53,10 +65,10 @@ FactoryGirl.define do
     owner
   end
 
-  factory :users_project do
+  factory :project_member do
     user
     project
-    project_access { UsersProject::MASTER }
+    access_level { ProjectMember::MASTER }
   end
 
   factory :issue do
@@ -74,80 +86,6 @@ FactoryGirl.define do
 
     factory :closed_issue, traits: [:closed]
     factory :reopened_issue, traits: [:reopened]
-  end
-
-  factory :merge_request do
-    title
-    author
-    project factory: :project_with_code
-    source_branch "master"
-    target_branch "stable"
-
-    # pick 3 commits "at random" (from bcf03b5d~3 to bcf03b5d)
-    trait :with_diffs do
-      target_branch "master" # pretend bcf03b5d~3
-      source_branch "stable" # pretend bcf03b5d
-      st_commits do
-        [
-          project.repository.commit('bcf03b5d').to_hash,
-          project.repository.commit('bcf03b5d~1').to_hash,
-          project.repository.commit('bcf03b5d~2').to_hash
-        ]
-      end
-      st_diffs do
-        project.repo.diff("bcf03b5d~3", "bcf03b5d")
-      end
-    end
-
-    trait :closed do
-      state :closed
-    end
-
-    trait :reopened do
-      state :reopened
-    end
-
-    factory :closed_merge_request, traits: [:closed]
-    factory :reopened_merge_request, traits: [:reopened]
-    factory :merge_request_with_diffs, traits: [:with_diffs]
-  end
-
-  factory :note do
-    project
-    note "Note"
-    author
-
-    factory :note_on_commit, traits: [:on_commit]
-    factory :note_on_commit_diff, traits: [:on_commit, :on_diff]
-    factory :note_on_issue, traits: [:on_issue], aliases: [:votable_note]
-    factory :note_on_merge_request, traits: [:on_merge_request]
-    factory :note_on_merge_request_diff, traits: [:on_merge_request, :on_diff]
-    factory :note_on_merge_request_with_attachment, traits: [:on_merge_request, :with_attachment]
-
-    trait :on_commit do
-      project factory: :project_with_code
-      commit_id     "bcf03b5de6c33f3869ef70d68cf06e679d1d7f9a"
-      noteable_type "Commit"
-    end
-
-    trait :on_diff do
-      line_code "0_184_184"
-    end
-
-    trait :on_merge_request do
-      project factory: :project_with_code
-      noteable_id   1
-      noteable_type "MergeRequest"
-    end
-
-    trait :on_issue do
-      noteable_id   1
-      noteable_type "Issue"
-    end
-
-    trait :with_attachment do
-      attachment { fixture_file_upload(Rails.root + "spec/fixtures/dk.png", "image/png") }
-    end
   end
 
   factory :event do
@@ -172,15 +110,25 @@ FactoryGirl.define do
       user
     end
 
-    factory :key_with_a_space_in_the_middle do
+    factory :another_key do
       key do
-        "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt4596k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa ++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0="
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDmTillFzNTrrGgwaCKaSj+QCz81E6jBc/s9av0+3b1Hwfxgkqjl4nAK/OD2NjgyrONDTDfR8cRN4eAAy6nY8GLkOyYBDyuc5nTMqs5z3yVuTwf3koGm/YQQCmo91psZ2BgDFTor8SVEE5Mm1D1k3JDMhDFxzzrOtRYFPci9lskTJaBjpqWZ4E9rDTD2q/QZntCqbC3wE9uSemRQB5f8kik7vD/AD8VQXuzKladrZKkzkONCPWsXDspUitjM8HkQdOf0PsYn1CMUC1xKYbCxkg5TkEosIwGv6CoEArUrdu/4+10LVslq494mAvEItywzrluCLCnwELfW+h/m8UHoVhZ"
+      end
+
+      factory :another_deploy_key, class: 'DeployKey' do
       end
     end
+  end
 
-    factory :invalid_key do
-      key do
-        "ssh-rsa this_is_invalid_key=="
+  factory :email do
+    user
+    email do
+      FFaker::Internet.email('alias')
+    end
+
+    factory :another_email do
+      email do
+        FFaker::Internet.email('another.alias')
       end
     end
   end
@@ -234,7 +182,6 @@ FactoryGirl.define do
   factory :service do
     type ""
     title "GitLab CI"
-    token "x56olispAND34ng"
     project
   end
 
@@ -246,5 +193,10 @@ FactoryGirl.define do
   factory :deploy_keys_project do
     deploy_key
     project
+  end
+
+  factory :identity do
+    provider 'ldapmain'
+    extern_uid 'my-ldap-id'
   end
 end

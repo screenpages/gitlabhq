@@ -1,15 +1,35 @@
 require 'spec_helper'
 
-# Specs in this file have access to a helper object that includes
-# the NotificationsHelper. For example:
-#
-# describe NotificationsHelper do
-#   describe "string concat" do
-#     it "concats two strings with spaces" do
-#       helper.concat_strings("this","that").should == "this that"
-#     end
-#   end
-# end
 describe NotificationsHelper do
-  pending "add some examples to (or delete) #{__FILE__}"
+  describe 'notification_icon' do
+    let(:notification) { double(disabled?: false, participating?: false, watch?: false) }
+
+    context "disabled notification" do
+      before { allow(notification).to receive(:disabled?).and_return(true) }
+
+      it "has a red icon" do
+        expect(notification_icon(notification)).to match('class="fa fa-volume-off ns-mute"')
+      end
+    end
+
+    context "participating notification" do
+      before { allow(notification).to receive(:participating?).and_return(true) }
+
+      it "has a blue icon" do
+        expect(notification_icon(notification)).to match('class="fa fa-volume-down ns-part"')
+      end
+    end
+
+    context "watched notification" do
+      before { allow(notification).to receive(:watch?).and_return(true) }
+
+      it "has a green icon" do
+        expect(notification_icon(notification)).to match('class="fa fa-volume-up ns-watch"')
+      end
+    end
+
+    it "has a blue icon" do
+      expect(notification_icon(notification)).to match('class="fa fa-circle-o ns-default"')
+    end
+  end
 end

@@ -1,29 +1,29 @@
-class GroupsController < ApplicationController
+class GroupsController < Groups::ApplicationController
+  skip_before_action :authenticate_user!, only: [:show, :issues, :merge_requests]
   respond_to :html
-  before_filter :group, except: [:new, :create]
+  before_action :group, except: [:new, :create]
 
   # Authorize
-  before_filter :authorize_read_group!, except: [:new, :create]
-  before_filter :authorize_admin_group!, only: [:edit, :update, :destroy]
-  before_filter :authorize_create_group!, only: [:new, :create]
+  before_action :authorize_read_group!, except: [:new, :create]
+  before_action :authorize_admin_group!, only: [:edit, :update, :destroy, :projects]
+  before_action :authorize_create_group!, only: [:new, :create]
 
   # Load group projects
-  before_filter :projects, except: [:new, :create]
+  before_action :load_projects, except: [:new, :create, :projects, :edit, :update]
+  before_action :event_filter, only: :show
 
   layout :determine_layout
-
-  before_filter :set_title, only: [:new, :create]
 
   def new
     @group = Group.new
   end
 
   def create
-    @group = Group.new(params[:group])
-    @group.path = @group.name.dup.parameterize if @group.name
-    @group.owner = current_user
+    @group = Group.new(group_params)
+    @group.name = @group.path.dup unless @group.name
 
     if @group.save
+      @group.add_owner(current_user)
       redirect_to @group, notice: 'Group was successfully created.'
     else
       render action: "new"
@@ -31,75 +31,58 @@ class GroupsController < ApplicationController
   end
 
   def show
-    @events = Event.in_projects(project_ids).limit(20).offset(params[:offset] || 0)
-    @last_push = current_user.recent_push
+    @last_push = current_user.recent_push if current_user
+    @projects = @projects.includes(:namespace)
 
     respond_to do |format|
       format.html
-      format.js
-      format.atom { render layout: false }
+
+      format.json do
+        load_events
+        pager_json("events/_events", @events.count)
+      end
+
+      format.atom do
+        load_events
+        render layout: false
+      end
     end
   end
 
-  # Get authored or assigned open merge requests
   def merge_requests
-    @merge_requests = current_user.cared_merge_requests.of_group(@group)
-    @merge_requests = FilterContext.new(@merge_requests, params).execute
-    @merge_requests = @merge_requests.recent.page(params[:page]).per(20)
+    @merge_requests = get_merge_requests_collection
+    @merge_requests = @merge_requests.page(params[:page]).per(PER_PAGE)
+    @merge_requests = @merge_requests.preload(:author, :target_project)
   end
 
-  # Get only assigned issues
   def issues
-    @issues = current_user.assigned_issues.of_group(@group)
-    @issues = FilterContext.new(@issues, params).execute
-    @issues = @issues.recent.page(params[:page]).per(20)
-    @issues = @issues.includes(:author, :project)
+    @issues = get_issues_collection
+    @issues = @issues.page(params[:page]).per(PER_PAGE)
+    @issues = @issues.preload(:author, :project)
 
     respond_to do |format|
       format.html
       format.atom { render layout: false }
     end
-  end
-
-  def people
-    @project = group.projects.find(params[:project_id]) if params[:project_id]
-    @users = @project ? @project.users : group.users
-    @users.sort_by!(&:name)
-
-    if @project
-      @team_member = @project.users_projects.new
-    else
-      @team_member = UsersProject.new
-    end
-  end
-
-  def team_members
-    @group.add_users_to_project_teams(params[:user_ids].split(','), params[:project_access])
-    redirect_to people_group_path(@group), notice: 'Users were successfully added.'
   end
 
   def edit
   end
 
+  def projects
+    @projects = @group.projects.page(params[:page])
+  end
+
   def update
-    group_params = params[:group].dup
-    owner_id =group_params.delete(:owner_id)
-
-    if owner_id
-      @group.owner = User.find(owner_id)
-      @group.save
-    end
-
     if @group.update_attributes(group_params)
-      redirect_to @group, notice: 'Group was successfully updated.'
+      redirect_to edit_group_path(@group), notice: 'Group was successfully updated.'
     else
       render action: "edit"
     end
   end
 
   def destroy
-    @group.truncate_teams
-    @group.destroy
+    DestroyGroupService.new(@group, current_user).execute
 
     redirect_to root_path, notice: 'Group was removed.'
   end
@@ -107,21 +90,25 @@ class GroupsController < ApplicationController
   protected
 
   def group
-    @group ||= Group.find_by_path(params[:id])
+    @group ||= Group.find_by(path: params[:id])
   end
 
-  def projects
-    @projects ||= current_user.authorized_projects.where(namespace_id: group.id).sorted_by_activity
+  def load_projects
+    @projects ||= ProjectsFinder.new.execute(current_user, group: group).sorted_by_activity.non_archived
   end
 
   def project_ids
-    projects.map(&:id)
+    @projects.pluck(:id)
   end
 
   # Dont allow unauthorized access to group
   def authorize_read_group!
-    unless projects.present? or can?(current_user, :manage_group, @group)
-      return render_404
+    unless @group and (@projects.present? or can?(current_user, :read_group, @group))
+      if current_user.nil?
+        return authenticate_user!
+      else
+        return render_404
+      end
     end
   end
 
@@ -131,21 +118,23 @@ class GroupsController < ApplicationController
     end
   end
 
-  def authorize_admin_group!
-    unless can?(current_user, :manage_group, group)
-      return render_404
-    end
-  end
-
-  def set_title
-    @title = 'New Group'
-  end
-
   def determine_layout
     if [:new, :create].include?(action_name.to_sym)
-      'navless'
+      'application'
+    elsif [:edit, :update, :projects].include?(action_name.to_sym)
+      'group_settings'
     else
       'group'
     end
+  end
+
+  def group_params
+    params.require(:group).permit(:name, :description, :path, :avatar)
+  end
+
+  def load_events
+    @events = Event.in_projects(project_ids)
+    @events = event_filter.apply_filter(@events).with_associations
+    @events = @events.limit(20).offset(params[:offset] || 0)
   end
 end

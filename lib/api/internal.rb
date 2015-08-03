@@ -1,51 +1,48 @@
 module API
   # Internal access API
   class Internal < Grape::API
+    before { authenticate_by_gitlab_shell_token! }
+
     namespace 'internal' do
-      #
-      # Check if ssh key has access to project code
+      # Check if git command is allowed to project
       #
       # Params:
-      #   key_id - SSH Key id
+      #   key_id - ssh key id for Git over SSH
+      #   user_id - user id for Git over HTTP
       #   project - project path with namespace
       #   action - git action (git-upload-pack or git-receive-pack)
       #   ref - branch name
+      #   forced_push - forced_push
       #
-      get "/allowed" do
+      post "/allowed" do
+        status 200
+
+        actor = 
+          if params[:key_id]
+            Key.find_by(id: params[:key_id])
+          elsif params[:user_id]
+            User.find_by(id: params[:user_id])
+          end
+
+        project_path = params[:project]
+        
         # Check for *.wiki repositories.
         # Strip out the .wiki from the pathname before finding the
         # project. This applies the correct project permissions to
         # the wiki repository as well.
-        project_path = params[:project]
-        project_path.gsub!(/\.wiki/,'') if project_path =~ /\.wiki/
+        wiki = project_path.end_with?('.wiki')
+        project_path.chomp!('.wiki') if wiki
 
-        key = Key.find(params[:key_id])
         project = Project.find_with_namespace(project_path)
-        git_cmd = params[:action]
-        return false unless project
 
+        access =
+          if wiki
+            Gitlab::GitAccessWiki.new(actor, project)
+          else
+            Gitlab::GitAccess.new(actor, project)
+          end
 
-        if key.is_a? DeployKey
-          key.projects.include?(project) && git_cmd == 'git-upload-pack'
-        else
-          user = key.user
-
-          return false if user.blocked?
-
-          action = case git_cmd
-                   when 'git-upload-pack', 'git-upload-archive'
-                     then :download_code
-                   when 'git-receive-pack'
-                     then
-                     if project.protected_branch?(params[:ref])
-                       :push_code_to_protected_branches
-                     else
-                       :push_code
-                     end
-                   end
-
-          user.can?(action, project)
-        end
+        access.check(params[:action], params[:changes])
       end
 
       #
@@ -63,7 +60,14 @@ module API
           gitlab_rev: Gitlab::REVISION,
         }
       end
+
+      get "/broadcast_message" do
+        if message = BroadcastMessage.current
+          present message, with: Entities::BroadcastMessage
+        else
+          {}
+        end
+      end
     end
   end
 end
-

@@ -20,10 +20,6 @@ class AttachmentUploader < CarrierWave::Uploader::Base
     false
   end
 
-  def secure_url
-    "/files/#{model.class.to_s.underscore}/#{model.id}/#{file.filename}"
-  end
-
   def file_storage?
     self.class.storage == CarrierWave::Storage::File
   end

@@ -1,45 +1,32 @@
-class ProfilesController < ApplicationController
+class ProfilesController < Profiles::ApplicationController
   include ActionView::Helpers::SanitizeHelper
 
-  before_filter :user
-  before_filter :authorize_change_password!, only: :update_password
-  before_filter :authorize_change_username!, only: :update_username
-
-  layout 'profile'
+  before_action :user
+  before_action :authorize_change_username!, only: :update_username
+  skip_before_action :require_email, only: [:show, :update]
 
   def show
   end
 
-  def design
-  end
-
-  def account
+  def applications
+    @applications = current_user.oauth_applications
+    @authorized_tokens = current_user.oauth_authorized_tokens
+    @authorized_anonymous_tokens = @authorized_tokens.reject(&:application)
+    @authorized_apps = @authorized_tokens.map(&:application).uniq - [nil]
   end
 
   def update
-    if @user.update_attributes(params[:user])
+    user_params.except!(:email) if @user.ldap_user?
+
+    if @user.update_attributes(user_params)
       flash[:notice] = "Profile was successfully updated"
     else
-      flash[:alert] = "Failed to update profile"
+      messages = @user.errors.full_messages.uniq.join('. ')
+      flash[:alert] = "Failed to update profile. #{messages}"
     end
 
     respond_to do |format|
       format.html { redirect_to :back }
-      format.js
-    end
-  end
-
-  def token
-  end
-
-  def update_password
-    params[:user].reject!{ |k, v| k != "password" && k != "password_confirmation"}
-
-    if @user.update_attributes(params[:user])
-      flash[:notice] = "Password was successfully updated. Please login with it"
-      redirect_to new_user_session_path
-    else
-      render 'account'
     end
   end
 
@@ -48,15 +35,18 @@ class ProfilesController < ApplicationController
       flash[:notice] = "Token was successfully updated"
     end
 
-    redirect_to account_profile_path
+    redirect_to profile_account_path
   end
 
-  def history
-    @events = current_user.recent_events.page(params[:page]).per(20)
+  def audit_log
+    @events = AuditEvent.where(entity_type: "User", entity_id: current_user.id).
+      order("created_at DESC").
+      page(params[:page]).
+      per(PER_PAGE)
   end
 
   def update_username
-    @user.update_attributes(username: params[:user][:username])
+    @user.update_attributes(username: user_params[:username])
 
     respond_to do |format|
       format.js
@@ -69,11 +59,27 @@ class ProfilesController < ApplicationController
     @user = current_user
   end
 
-  def authorize_change_password!
-    return render_404 if @user.ldap_user?
-  end
-
   def authorize_change_username!
     return render_404 unless @user.can_change_username?
+  end
+
+  def user_params
+    params.require(:user).permit(
+      :avatar,
+      :bio,
+      :email,
+      :hide_no_password,
+      :hide_no_ssh_key,
+      :linkedin,
+      :location,
+      :name,
+      :password,
+      :password_confirmation,
+      :public_email,
+      :skype,
+      :twitter,
+      :username,
+      :website_url
+    )
   end
 end

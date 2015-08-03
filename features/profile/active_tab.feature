@@ -1,4 +1,5 @@
-Feature: Profile active tab
+@profile
+Feature: Profile Active Tab
   Background:
     Given I sign in as a user
 
@@ -17,12 +18,12 @@ Feature: Profile active tab
     Then the active main tab should be SSH Keys
     And no other main tabs should be active
 
-  Scenario: On Profile Design
-    Given I visit profile design page
-    Then the active main tab should be Design
+  Scenario: On Profile Preferences
+    Given I visit profile preferences page
+    Then the active main tab should be Preferences
     And no other main tabs should be active
 
-  Scenario: On Profile History
-    Given I visit profile history page
-    Then the active main tab should be History
+  Scenario: On Profile Audit Log
+    Given I visit Audit Log page
+    Then the active main tab should be Audit Log
     And no other main tabs should be active

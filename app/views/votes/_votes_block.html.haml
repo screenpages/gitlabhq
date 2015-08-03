@@ -1,6 +1,10 @@
 .votes.votes-block
-  .progress
-    .bar.bar-success{style: "width: #{votable.upvotes_in_percent}%;"}
-    .bar.bar-danger{style: "width: #{votable.downvotes_in_percent}%;"}
-  .upvotes= "#{votable.upvotes} up"
-  .downvotes= "#{votable.downvotes} down"
+  .btn-group
+    - unless votable.upvotes.zero?
+      .btn.btn-sm.disabled.cgreen
+        %i.fa.fa-thumbs-up
+        = votable.upvotes
+    - unless votable.downvotes.zero?
+      .btn.btn-sm.disabled.cred
+        %i.fa.fa-thumbs-down
+        = votable.downvotes

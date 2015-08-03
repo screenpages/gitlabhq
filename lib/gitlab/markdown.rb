@@ -1,42 +1,45 @@
+require 'html/pipeline'
+
 module Gitlab
   # Custom parser for GitLab-flavored Markdown
   #
-  # It replaces references in the text with links to the appropriate items in
-  # GitLab.
-  #
-  # Supported reference formats are:
-  #   * @foo for team members
-  #   * #123 for issues
-  #   * #JIRA-123 for Jira issues
-  #   * !123 for merge requests
-  #   * $123 for snippets
-  #   * 123456 for commits
-  #
-  # It also parses Emoji codes to insert images. See
-  # http://www.emoji-cheat-sheet.com/ for a list of the supported icons.
-  #
-  # Examples
-  #
-  #   >> gfm("Hey @david, can you fix this?")
-  #   => "Hey <a href="/u/david">@david</a>, can you fix this?"
-  #
-  #   >> gfm("Commit 35d5f7c closes #1234")
-  #   => "Commit <a href="/gitlab/commits/35d5f7c">35d5f7c</a> closes <a href="/gitlab/issues/1234">#1234</a>"
-  #
-  #   >> gfm(":trollface:")
-  #   => "<img alt=\":trollface:\" class=\"emoji\" src=\"/images/trollface.png" title=\":trollface:\" />
+  # See the files in `lib/gitlab/markdown/` for specific processing information.
   module Markdown
-    include IssuesHelper
-
-    attr_reader :html_options
+    # Provide autoload paths for filters to prevent a circular dependency error
+    autoload :AutolinkFilter,               'gitlab/markdown/autolink_filter'
+    autoload :CommitRangeReferenceFilter,   'gitlab/markdown/commit_range_reference_filter'
+    autoload :CommitReferenceFilter,        'gitlab/markdown/commit_reference_filter'
+    autoload :EmojiFilter,                  'gitlab/markdown/emoji_filter'
+    autoload :ExternalIssueReferenceFilter, 'gitlab/markdown/external_issue_reference_filter'
+    autoload :ExternalLinkFilter,           'gitlab/markdown/external_link_filter'
+    autoload :IssueReferenceFilter,         'gitlab/markdown/issue_reference_filter'
+    autoload :LabelReferenceFilter,         'gitlab/markdown/label_reference_filter'
+    autoload :MergeRequestReferenceFilter,  'gitlab/markdown/merge_request_reference_filter'
+    autoload :RelativeLinkFilter,           'gitlab/markdown/relative_link_filter'
+    autoload :SanitizationFilter,           'gitlab/markdown/sanitization_filter'
+    autoload :SnippetReferenceFilter,       'gitlab/markdown/snippet_reference_filter'
+    autoload :TableOfContentsFilter,        'gitlab/markdown/table_of_contents_filter'
+    autoload :TaskListFilter,               'gitlab/markdown/task_list_filter'
+    autoload :UserReferenceFilter,          'gitlab/markdown/user_reference_filter'
 
     # Public: Parse the provided text with GitLab-Flavored Markdown
     #
     # text         - the source text
+    # options      - options
     # html_options - extra options for the reference links as given to link_to
+    def gfm(text, options = {}, html_options = {})
+      gfm_with_options(text, options, html_options)
+    end
+
+    # Public: Parse the provided text with GitLab-Flavored Markdown
     #
-    # Note: reference links will only be generated if @project is set
-    def gfm(text, html_options = {})
+    # text         - the source text
+    # options      - A Hash of options used to customize output (default: {}):
+    #                :xhtml               - output XHTML instead of HTML
+    #                :reference_only_path - Use relative path for reference links
+    # project      - the project
+    # html_options - extra options for the reference links as given to link_to
+    def gfm_with_options(text, options = {}, html_options = {})
       return text if text.nil?
 
       # Duplicate the string so we don't alter the original, then call to_str
@@ -44,158 +47,79 @@ module Gitlab
       # for gsub calls to work as we need them to.
       text = text.dup.to_str
 
-      @html_options = html_options
+      options.reverse_merge!(
+        xhtml:                false,
+        reference_only_path:  true,
+        project:              @project,
+        current_user:         current_user
+      )
 
-      # Extract pre blocks so they are not altered
-      # from http://github.github.com/github-flavored-markdown/
-      text.gsub!(%r{<pre>.*?</pre>|<code>.*?</code>}m) { |match| extract_piece(match) }
-      # Extract links with probably parsable hrefs
-      text.gsub!(%r{<a.*?>.*?</a>}m) { |match| extract_piece(match) }
-      # Extract images with probably parsable src
-      text.gsub!(%r{<img.*?>}m) { |match| extract_piece(match) }
+      @pipeline ||= HTML::Pipeline.new(filters)
 
-      # TODO: add popups with additional information
+      context = {
+        # SanitizationFilter
+        pipeline: options[:pipeline],
 
-      text = parse(text)
+        # EmojiFilter
+        asset_root: Gitlab.config.gitlab.url,
+        asset_host: Gitlab::Application.config.asset_host,
 
-      # Insert pre block extractions
-      text.gsub!(/\{gfm-extraction-(\h{32})\}/) do
-        insert_piece($1)
+        # TableOfContentsFilter
+        no_header_anchors: options[:no_header_anchors],
+
+        # ReferenceFilter
+        current_user:    options[:current_user],
+        only_path:       options[:reference_only_path],
+        project:         options[:project],
+        reference_class: html_options[:class],
+
+        # RelativeLinkFilter
+        ref:            @ref,
+        requested_path: @path,
+        project_wiki:   @project_wiki
+      }
+
+      result = @pipeline.call(text, context)
+
+      save_options = 0
+      if options[:xhtml]
+        save_options |= Nokogiri::XML::Node::SaveOptions::AS_XHTML
       end
 
-      sanitize text.html_safe, attributes: ActionView::Base.sanitized_allowed_attributes + %w(id class)
+      text = result[:output].to_html(save_with: save_options)
+
+      text.html_safe
     end
 
     private
 
-    def extract_piece(text)
-      @extractions ||= {}
-
-      md5 = Digest::MD5.hexdigest(text)
-      @extractions[md5] = text
-      "{gfm-extraction-#{md5}}"
-    end
-
-    def insert_piece(id)
-      @extractions[id]
-    end
-
-    # Private: Parses text for references and emoji
+    # Filters used in our pipeline
     #
-    # text - Text to parse
+    # SanitizationFilter should come first so that all generated reference HTML
+    # goes through untouched.
     #
-    # Note: reference links will only be generated if @project is set
-    #
-    # Returns parsed text
-    def parse(text)
-      parse_references(text) if @project
-      parse_emoji(text)
+    # See https://github.com/jch/html-pipeline#filters for more filters.
+    def filters
+      [
+        Gitlab::Markdown::SanitizationFilter,
 
-      text
-    end
+        Gitlab::Markdown::RelativeLinkFilter,
+        Gitlab::Markdown::EmojiFilter,
+        Gitlab::Markdown::TableOfContentsFilter,
+        Gitlab::Markdown::AutolinkFilter,
+        Gitlab::Markdown::ExternalLinkFilter,
 
-    REFERENCE_PATTERN = %r{
-      (?<prefix>\W)?                         # Prefix
-      (                                      # Reference
-         @(?<user>[a-zA-Z][a-zA-Z0-9_\-\.]*) # User name
-        |\#(?<issue>([a-zA-Z]+-)?\d+)        # Issue ID
-        |!(?<merge_request>\d+)              # MR ID
-        |\$(?<snippet>\d+)                   # Snippet ID
-        |(?<commit>[\h]{6,40})               # Commit ID
-        |(?<skip>gfm-extraction-[\h]{6,40})  # Skip gfm extractions. Otherwise will be parsed as commit
-      )
-      (?<suffix>\W)?                         # Suffix
-    }x.freeze
+        Gitlab::Markdown::UserReferenceFilter,
+        Gitlab::Markdown::IssueReferenceFilter,
+        Gitlab::Markdown::ExternalIssueReferenceFilter,
+        Gitlab::Markdown::MergeRequestReferenceFilter,
+        Gitlab::Markdown::SnippetReferenceFilter,
+        Gitlab::Markdown::CommitRangeReferenceFilter,
+        Gitlab::Markdown::CommitReferenceFilter,
+        Gitlab::Markdown::LabelReferenceFilter,
 
-    TYPES = [:user, :issue, :merge_request, :snippet, :commit].freeze
-
-    def parse_references(text)
-      # parse reference links
-      text.gsub!(REFERENCE_PATTERN) do |match|
-        prefix     = $~[:prefix]
-        suffix     = $~[:suffix]
-        type       = TYPES.select{|t| !$~[t].nil?}.first
-
-        if type
-          identifier = $~[type]
-
-          # Avoid HTML entities
-          if prefix && suffix && prefix[0] == '&' && suffix[-1] == ';'
-            match
-          elsif ref_link = reference_link(type, identifier)
-            "#{prefix}#{ref_link}#{suffix}"
-          else
-            match
-          end
-        else
-          match
-        end
-      end
-    end
-
-    EMOJI_PATTERN = %r{(:(\S+):)}.freeze
-
-    def parse_emoji(text)
-      # parse emoji
-      text.gsub!(EMOJI_PATTERN) do |match|
-        if valid_emoji?($2)
-          image_tag(url_to_image("emoji/#{$2}.png"), class: 'emoji', title: $1, alt: $1, size: "20x20")
-        else
-          match
-        end
-      end
-    end
-
-    # Private: Checks if an emoji icon exists in the image asset directory
-    #
-    # emoji - Identifier of the emoji as a string (e.g., "+1", "heart")
-    #
-    # Returns boolean
-    def valid_emoji?(emoji)
-      Emoji.names.include? emoji
-    end
-
-    # Private: Dispatches to a dedicated processing method based on reference
-    #
-    # reference  - Object reference ("@1234", "!567", etc.)
-    # identifier - Object identifier (Issue ID, SHA hash, etc.)
-    #
-    # Returns string rendered by the processing method
-    def reference_link(type, identifier)
-      send("reference_#{type}", identifier)
-    end
-
-    def reference_user(identifier)
-      if member = @project.users_projects.joins(:user).where(users: { username: identifier }).first
-        link_to("@#{identifier}", user_path(identifier), html_options.merge(class: "gfm gfm-team_member #{html_options[:class]}")) if member
-      end
-    end
-
-    def reference_issue(identifier)
-      if @project.issue_exists? identifier
-        url = url_for_issue(identifier)
-        title = title_for_issue(identifier)
-
-        link_to("##{identifier}", url, html_options.merge(title: "Issue: #{title}", class: "gfm gfm-issue #{html_options[:class]}"))
-      end
-    end
-
-    def reference_merge_request(identifier)
-      if merge_request = @project.merge_requests.where(id: identifier).first
-        link_to("!#{identifier}", project_merge_request_url(@project, merge_request), html_options.merge(title: "Merge Request: #{merge_request.title}", class: "gfm gfm-merge_request #{html_options[:class]}"))
-      end
-    end
-
-    def reference_snippet(identifier)
-      if snippet = @project.snippets.where(id: identifier).first
-        link_to("$#{identifier}", project_snippet_url(@project, snippet), html_options.merge(title: "Snippet: #{snippet.title}", class: "gfm gfm-snippet #{html_options[:class]}"))
-      end
-    end
-
-    def reference_commit(identifier)
-      if @project.valid_repo? && commit = @project.repository.commit(identifier)
-        link_to(identifier, project_commit_url(@project, commit), html_options.merge(title: commit.link_title, class: "gfm gfm-commit #{html_options[:class]}"))
-      end
+        Gitlab::Markdown::TaskListFilter
+      ]
     end
   end
 end

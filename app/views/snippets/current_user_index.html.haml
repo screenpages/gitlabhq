@@ -1,24 +1,35 @@
-%h3.page_title
-  My Snippets
-  %small share code pastes with others out of git repository
+- page_title "Your Snippets"
+%h3.page-title
+  Your Snippets
   .pull-right
-    = link_to new_snippet_path, class: "btn btn-small add_new grouped btn-primary", title: "New Snippet" do
+    = link_to new_snippet_path, class: "btn btn-new btn-grouped", title: "New Snippet" do
       Add new snippet
-    = link_to snippets_path, class: "btn btn-small grouped"  do
-      Discover snippets
 
-%hr
+%p.light
+  Share code pastes with others out of git repository
 
-.row
-  .span3
-    %ul.nav.nav-pills.nav-stacked
-      = nav_tab :scope, nil do
-        = link_to "All", user_snippets_path(@user)
-      = nav_tab :scope, 'private' do
-        = link_to "Private", user_snippets_path(@user, scope: 'private')
-      = nav_tab :scope, 'public' do
-        = link_to "Public", user_snippets_path(@user, scope: 'public')
+%ul.nav.nav-tabs
+  = nav_tab :scope, nil do
+    = link_to user_snippets_path(@user) do
+      All
+      %span.badge
+        = @user.snippets.count
+  = nav_tab :scope, 'are_private' do
+    = link_to user_snippets_path(@user, scope: 'are_private') do
+      Private
+      %span.badge
+        = @user.snippets.are_private.count
+  = nav_tab :scope, 'are_internal' do
+    = link_to user_snippets_path(@user, scope: 'are_internal') do
+      Internal
+      %span.badge
+        = @user.snippets.are_internal.count
+  = nav_tab :scope, 'are_public' do
+    = link_to user_snippets_path(@user, scope: 'are_public') do
+      Public
+      %span.badge
+        = @user.snippets.are_public.count
 
-  .span9
-    = render 'snippets'
+.my-snippets
+  = render 'snippets'
 

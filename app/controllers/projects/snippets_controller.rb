@@ -1,25 +1,26 @@
 class Projects::SnippetsController < Projects::ApplicationController
-  before_filter :module_enabled
-  before_filter :snippet, only: [:show, :edit, :destroy, :update, :raw]
+  before_action :module_enabled
+  before_action :snippet, only: [:show, :edit, :destroy, :update, :raw]
 
   # Allow read any snippet
-  before_filter :authorize_read_project_snippet!
+  before_action :authorize_read_project_snippet!
 
   # Allow write(create) snippet
-  before_filter :authorize_write_project_snippet!, only: [:new, :create]
+  before_action :authorize_create_project_snippet!, only: [:new, :create]
 
   # Allow modify snippet
-  before_filter :authorize_modify_project_snippet!, only: [:edit, :update]
+  before_action :authorize_update_project_snippet!, only: [:edit, :update]
 
   # Allow destroy snippet
-  before_filter :authorize_admin_project_snippet!, only: [:destroy]
-
-  layout 'project_resource'
+  before_action :authorize_admin_project_snippet!, only: [:destroy]
 
   respond_to :html
 
   def index
-    @snippets = @project.snippets.fresh.non_expired
+    @snippets = SnippetsFinder.new.execute(current_user, {
+      filter: :by_project,
+      project: @project
+    })
   end
 
   def new
@@ -27,31 +28,28 @@ class Projects::SnippetsController < Projects::ApplicationController
   end
 
   def create
-    @snippet = @project.snippets.build(params[:project_snippet])
-    @snippet.author = current_user
-
-    if @snippet.save
-      redirect_to project_snippet_path(@project, @snippet)
-    else
-      respond_with(@snippet)
-    end
+    @snippet = CreateSnippetService.new(@project, current_user,
+                                        snippet_params).execute
+    respond_with(@snippet,
+                 location: namespace_project_snippet_path(@project.namespace,
+                                                          @project, @snippet))
   end
 
   def edit
   end
 
   def update
-    if @snippet.update_attributes(params[:project_snippet])
-      redirect_to project_snippet_path(@project, @snippet)
-    else
-      respond_with(@snippet)
-    end
+    UpdateSnippetService.new(project, current_user, @snippet,
+                             snippet_params).execute
+    respond_with(@snippet,
+                 location: namespace_project_snippet_path(@project.namespace,
+                                                          @project, @snippet))
   end
 
   def show
     @note = @project.notes.new(noteable: @snippet)
-    @target_type = :snippet
-    @target_id = @snippet.id
+    @notes = @snippet.notes.fresh
+    @noteable = @snippet
   end
 
   def destroy
@@ -59,15 +57,15 @@ class Projects::SnippetsController < Projects::ApplicationController
 
     @snippet.destroy
 
-    redirect_to project_snippets_path(@project)
+    redirect_to namespace_project_snippets_path(@project.namespace, @project)
   end
 
   def raw
     send_data(
       @snippet.content,
-      type: "text/plain",
+      type: 'text/plain; charset=utf-8',
       disposition: 'inline',
-      filename: @snippet.file_name
+      filename: @snippet.sanitized_file_name
     )
   end
 
@@ -77,8 +75,8 @@ class Projects::SnippetsController < Projects::ApplicationController
     @snippet ||= @project.snippets.find(params[:id])
   end
 
-  def authorize_modify_project_snippet!
-    return render_404 unless can?(current_user, :modify_project_snippet, @snippet)
+  def authorize_update_project_snippet!
+    return render_404 unless can?(current_user, :update_project_snippet, @snippet)
   end
 
   def authorize_admin_project_snippet!
@@ -87,5 +85,9 @@ class Projects::SnippetsController < Projects::ApplicationController
 
   def module_enabled
     return render_404 unless @project.snippets_enabled
+  end
+
+  def snippet_params
+    params.require(:project_snippet).permit(:title, :content, :file_name, :private, :visibility_level)
   end
 end

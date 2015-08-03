@@ -2,11 +2,15 @@ window.ContributorsStatGraphUtil =
   parse_log: (log) ->
     total = {}
     by_author = {}
+    by_email = {}
     for entry in log
       @add_date(entry.date, total) unless total[entry.date]?
-      @add_author(entry.author, by_author) unless by_author[entry.author]?
-      @add_date(entry.date, by_author[entry.author]) unless by_author[entry.author][entry.date]
-      @store_data(entry, total[entry.date], by_author[entry.author][entry.date])
+
+      data = by_author[entry.author_name] #|| by_email[entry.author_email]      
+      data ?= @add_author(entry, by_author, by_email)
+
+      @add_date(entry.date, data) unless data[entry.date]
+      @store_data(entry, total[entry.date], data[entry.date])
     total = _.toArray(total)
     by_author = _.toArray(by_author)
     total: total, by_author: by_author
@@ -15,9 +19,12 @@ window.ContributorsStatGraphUtil =
     collection[date] = {}
     collection[date].date = date
 
-  add_author: (author, by_author) ->
-    by_author[author] = {}
-    by_author[author].author = author
+  add_author: (author, by_author, by_email) ->
+    data = {}
+    data.author_name = author.author_name
+    data.author_email = author.author_email
+    by_author[author.author_name] = data
+    by_email[author.author_email] = data
 
   store_data: (entry, total, by_author) ->
     @store_commits(total, by_author)
@@ -71,10 +78,11 @@ window.ContributorsStatGraphUtil =
 
   parse_log_entry: (log_entry, field, date_range) ->
     parsed_entry = {}
-    parsed_entry.author = log_entry.author
+    parsed_entry.author_name = log_entry.author_name
+    parsed_entry.author_email = log_entry.author_email
     parsed_entry.dates = {}
     parsed_entry.commits = parsed_entry.additions = parsed_entry.deletions = 0
-    _.each(_.omit(log_entry, 'author'), (value, key) =>
+    _.each(_.omit(log_entry, 'author_name', 'author_email'), (value, key) =>
       if @in_range(value.date, date_range)
         parsed_entry.dates[value.date] = value[field]
         parsed_entry.commits += value.commits
@@ -88,4 +96,4 @@ window.ContributorsStatGraphUtil =
       true
     else
       false
-  
+

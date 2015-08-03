@@ -1,16 +1,8 @@
 # Module providing methods for dealing with separating a tree-ish string and a
 # file path string when combined in a request parameter
 module ExtractsPath
-  extend ActiveSupport::Concern
-
   # Raised when given an invalid file path
   class InvalidPathError < StandardError; end
-
-  included do
-    if respond_to?(:before_filter)
-      before_filter :assign_ref_vars
-    end
-  end
 
   # Given a string containing both a Git tree-ish, such as a branch or tag, and
   # a filesystem path joined by forward slashes, attempts to separate the two.
@@ -63,12 +55,16 @@ module ExtractsPath
       valid_refs = @project.repository.ref_names
       valid_refs.select! { |v| id.start_with?("#{v}/") }
 
-      if valid_refs.length != 1
+      if valid_refs.length == 0
         # No exact ref match, so just try our best
         pair = id.match(/([^\/]+)(.*)/).captures
       else
+        # There is a distinct possibility that multiple refs prefix the ID.
+        # Use the longest match to maximize the chance that we have the
+        # right ref.
+        best_match = valid_refs.max_by(&:length)
         # Partition the string into the ref and the path, ignoring the empty first value
-        pair = id.partition(valid_refs.first)[1..-1]
+        pair = id.partition(best_match)[1..-1]
       end
     end
 
@@ -86,7 +82,6 @@ module ExtractsPath
   # - @ref    - A string representing the ref (e.g., the branch, tag, or commit SHA)
   # - @path   - A string representing the filesystem path
   # - @commit - A Commit representing the commit from the given ref
-  # - @tree   - A Tree representing the tree at the given ref/path
   #
   # If the :id parameter appears to be requesting a specific response format,
   # that will be handled as well.
@@ -94,26 +89,32 @@ module ExtractsPath
   # Automatically renders `not_found!` if a valid tree path could not be
   # resolved (e.g., when a user inserts an invalid path or ref).
   def assign_ref_vars
-    @id = get_id
-
-    @ref, @path = extract_ref(@id)
-
-    @repo = @project.repository
-
-    @commit = @repo.commit(@ref)
-
-    @tree = Tree.new(@repo, @commit.id, @ref, @path)
-    @hex_path = Digest::SHA1.hexdigest(@path)
-    @logs_path = logs_file_project_ref_path(@project, @ref, @path)
-
     # assign allowed options
-    allowed_options = ["filter_ref", "q"]
+    allowed_options = ["filter_ref", "extended_sha1"]
     @options = params.select {|key, value| allowed_options.include?(key) && !value.blank? }
     @options = HashWithIndifferentAccess.new(@options)
 
-    raise InvalidPathError unless @tree.exists?
+    @id = get_id
+    @ref, @path = extract_ref(@id)
+    @repo = @project.repository
+    if @options[:extended_sha1].blank?
+      @commit = @repo.commit(@ref)
+    else
+      @commit = @repo.commit(@options[:extended_sha1])
+    end
+
+    raise InvalidPathError unless @commit
+
+    @hex_path = Digest::SHA1.hexdigest(@path)
+    @logs_path = logs_file_namespace_project_ref_path(@project.namespace,
+                                                      @project, @ref, @path)
+
   rescue RuntimeError, NoMethodError, InvalidPathError
     not_found!
+  end
+
+  def tree
+    @tree ||= @repo.tree(@commit.id, @path)
   end
 
   private

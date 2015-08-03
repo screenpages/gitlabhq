@@ -7,26 +7,32 @@
 module Issuable
   extend ActiveSupport::Concern
   include Mentionable
+  include Participable
 
   included do
-    belongs_to :project
     belongs_to :author, class_name: "User"
     belongs_to :assignee, class_name: "User"
     belongs_to :milestone
     has_many :notes, as: :noteable, dependent: :destroy
+    has_many :label_links, as: :target, dependent: :destroy
+    has_many :labels, through: :label_links
+    has_many :subscriptions, dependent: :destroy, as: :subscribable
 
-    validates :project, presence: true
     validates :author, presence: true
     validates :title, presence: true, length: { within: 0..255 }
 
-    scope :opened, -> { with_state(:opened) }
-    scope :closed, -> { with_state(:closed) }
-    scope :of_group, ->(group) { where(project_id: group.project_ids) }
-    scope :of_user_team, ->(team) { where(project_id: team.project_ids, assignee_id: team.member_ids) }
+    scope :authored, ->(user) { where(author_id: user) }
     scope :assigned_to, ->(u) { where(assignee_id: u.id)}
     scope :recent, -> { order("created_at DESC") }
     scope :assigned, -> { where("assignee_id IS NOT NULL") }
     scope :unassigned, -> { where("assignee_id IS NULL") }
+    scope :of_projects, ->(ids) { where(project_id: ids) }
+    scope :opened, -> { with_state(:opened, :reopened) }
+    scope :only_opened, -> { with_state(:opened) }
+    scope :only_reopened, -> { with_state(:reopened) }
+    scope :closed, -> { with_state(:closed) }
+    scope :order_milestone_due_desc, -> { joins(:milestone).reorder('milestones.due_date DESC, milestones.id DESC') }
+    scope :order_milestone_due_asc, -> { joins(:milestone).reorder('milestones.due_date ASC, milestones.id ASC') }
 
     delegate :name,
              :email,
@@ -39,12 +45,26 @@ module Issuable
              allow_nil: true,
              prefix: true
 
-    attr_accessor :author_id_of_changes
+    attr_mentionable :title, :description
+    participant :author, :assignee, :notes, :mentioned_users
   end
 
   module ClassMethods
     def search(query)
-      where("title like :query", query: "%#{query}%")
+      where("LOWER(title) like :query", query: "%#{query.downcase}%")
+    end
+
+    def full_search(query)
+      where("LOWER(title) like :query OR LOWER(description) like :query", query: "%#{query.downcase}%")
+    end
+
+    def sort(method)
+      case method.to_s
+      when 'milestone_due_asc' then order_milestone_due_asc
+      when 'milestone_due_desc' then order_milestone_due_desc
+      else
+        order_by(method)
+      end
     end
   end
 
@@ -70,7 +90,7 @@ module Issuable
 
   # Return the number of -1 comments (downvotes)
   def downvotes
-    notes.select(&:downvote?).size
+    filter_superceded_votes(notes.select(&:downvote?), notes).size
   end
 
   def downvotes_in_percent
@@ -83,7 +103,7 @@ module Issuable
 
   # Return the number of +1 comments (upvotes)
   def upvotes
-    notes.select(&:upvote?).size
+    filter_superceded_votes(notes.select(&:upvote?), notes).size
   end
 
   def upvotes_in_percent
@@ -99,17 +119,67 @@ module Issuable
     upvotes + downvotes
   end
 
-  # Return all users participating on the discussion
-  def participants
-    users = []
-    users << author
-    users << assignee if is_assigned?
-    mentions = []
-    mentions << self.mentioned_users
-    notes.each do |note|
-      users << note.author
-      mentions << note.mentioned_users
+  def subscribed?(user)
+    subscription = subscriptions.find_by_user_id(user.id)
+
+    if subscription
+      return subscription.subscribed
     end
-    users.concat(mentions.reduce([], :|)).uniq
+
+    participants(user).include?(user)
+  end
+
+  def toggle_subscription(user)
+    subscriptions.
+      find_or_initialize_by(user_id: user.id).
+      update(subscribed: !subscribed?(user))
+  end
+
+  def to_hook_data(user)
+    {
+      object_kind: self.class.name.underscore,
+      user: user.hook_attrs,
+      object_attributes: hook_attrs
+    }
+  end
+
+  def label_names
+    labels.order('title ASC').pluck(:title)
+  end
+
+  def remove_labels
+    labels.delete_all
+  end
+
+  def add_labels_by_names(label_names)
+    label_names.each do |label_name|
+      label = project.labels.create_with(color: Label::DEFAULT_COLOR).
+        find_or_create_by(title: label_name.strip)
+      self.labels << label
+    end
+  end
+
+  # Convert this Issuable class name to a format usable by Ability definitions
+  #
+  # Examples:
+  #
+  #   issuable.class           # => MergeRequest
+  #   issuable.to_ability_name # => "merge_request"
+  def to_ability_name
+    self.class.to_s.underscore
+  end
+
+  private
+
+  def filter_superceded_votes(votes, notes)
+    filteredvotes = [] + votes
+
+    votes.each do |vote|
+      if vote.superceded?(notes)
+        filteredvotes.delete(vote)
+      end
+    end
+
+    filteredvotes
   end
 end

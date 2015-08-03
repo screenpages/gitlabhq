@@ -41,24 +41,23 @@ module API
       #   id (required) - The ID of a project
       #   title (required) - The title of a snippet
       #   file_name (required) - The name of a snippet file
-      #   lifetime (optional) - The expiration date of a snippet
       #   code (required) - The content of a snippet
+      #   visibility_level (required) - The snippet's visibility
       # Example Request:
       #   POST /projects/:id/snippets
       post ":id/snippets" do
-        authorize! :write_project_snippet, user_project
-        required_attributes! [:title, :file_name, :code]
+        authorize! :create_project_snippet, user_project
+        required_attributes! [:title, :file_name, :code, :visibility_level]
 
-        attrs = attributes_for_keys [:title, :file_name]
-        attrs[:expires_at] = params[:lifetime] if params[:lifetime].present?
+        attrs = attributes_for_keys [:title, :file_name, :visibility_level]
         attrs[:content] = params[:code] if params[:code].present?
-        @snippet = user_project.snippets.new attrs
-        @snippet.author = current_user
+        @snippet = CreateSnippetService.new(user_project, current_user,
+                                            attrs).execute
 
-        if @snippet.save
-          present @snippet, with: Entities::ProjectSnippet
+        if @snippet.errors.any?
+          render_validation_error!(@snippet)
         else
-          not_found!
+          present @snippet, with: Entities::ProjectSnippet
         end
       end
 
@@ -69,22 +68,23 @@ module API
       #   snippet_id (required) - The ID of a project snippet
       #   title (optional) - The title of a snippet
       #   file_name (optional) - The name of a snippet file
-      #   lifetime (optional) - The expiration date of a snippet
       #   code (optional) - The content of a snippet
+      #   visibility_level (optional) - The snippet's visibility
       # Example Request:
       #   PUT /projects/:id/snippets/:snippet_id
       put ":id/snippets/:snippet_id" do
         @snippet = user_project.snippets.find(params[:snippet_id])
-        authorize! :modify_project_snippet, @snippet
+        authorize! :update_project_snippet, @snippet
 
-        attrs = attributes_for_keys [:title, :file_name]
-        attrs[:expires_at] = params[:lifetime] if params[:lifetime].present?
+        attrs = attributes_for_keys [:title, :file_name, :visibility_level]
         attrs[:content] = params[:code] if params[:code].present?
 
-        if @snippet.update_attributes attrs
-          present @snippet, with: Entities::ProjectSnippet
+        UpdateSnippetService.new(user_project, current_user, @snippet,
+                                 attrs).execute
+        if @snippet.errors.any?
+          render_validation_error!(@snippet)
         else
-          not_found!
+          present @snippet, with: Entities::ProjectSnippet
         end
       end
 
@@ -98,9 +98,10 @@ module API
       delete ":id/snippets/:snippet_id" do
         begin
           @snippet = user_project.snippets.find(params[:snippet_id])
-          authorize! :modify_project_snippet, @snippet
+          authorize! :update_project_snippet, @snippet
           @snippet.destroy
         rescue
+          not_found!('Snippet')
         end
       end
 

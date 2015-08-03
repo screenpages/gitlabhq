@@ -1,10 +1,4 @@
-!!! 5
-%html{ lang: "en"}
-  = render "layouts/head", title: "Search"
-  %body{class: "#{app_theme} application", :'data-page' => body_data_page}
-    = render "layouts/head_panel", title: "Search"
-    = render "layouts/flash"
+- page_title    "Search"
+- header_title  "Search", search_path
 
-    .container.navless-container
-      .content
-        = yield
+= render template: "layouts/application"

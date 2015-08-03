@@ -28,6 +28,10 @@ module TabHelper
   #   nav_link(controller: [:tree, :refs]) { "Hello" }
   #   # => '<li class="active">Hello</li>'
   #
+  #   # Several paths
+  #   nav_link(path: ['tree#show', 'profile#show']) { "Hello" }
+  #   # => '<li class="active">Hello</li>'
+  #
   #   # Shorthand path
   #   nav_link(path: 'tree#show') { "Hello" }
   #   # => '<li class="active">Hello</li>'
@@ -38,25 +42,7 @@ module TabHelper
   #
   # Returns a list item element String
   def nav_link(options = {}, &block)
-    if path = options.delete(:path)
-      if path.respond_to?(:each)
-        c = path.map { |p| p.split('#').first }
-        a = path.map { |p| p.split('#').last }
-      else
-        c, a, _ = path.split('#')
-      end
-    else
-      c = options.delete(:controller)
-      a = options.delete(:action)
-    end
-
-    if c && a
-      # When given both options, make sure BOTH are active
-      klass = current_controller?(*c) && current_action?(*a) ? 'active' : ''
-    else
-      # Otherwise check EITHER option
-      klass = current_controller?(*c) || current_action?(*a) ? 'active' : ''
-    end
+    klass = active_nav_link?(options) ? 'active' : ''
 
     # Add our custom class into the html_options, which may or may not exist
     # and which may or may not already have a :class key
@@ -72,27 +58,61 @@ module TabHelper
     end
   end
 
+  def active_nav_link?(options)
+    if path = options.delete(:path)
+      unless path.respond_to?(:each)
+        path = [path]
+      end
+
+      path.any? do |single_path|
+        current_path?(single_path)
+      end
+    else
+      c = options.delete(:controller)
+      a = options.delete(:action)
+
+      if c && a
+        # When given both options, make sure BOTH are true
+        current_controller?(*c) && current_action?(*a)
+      else
+        # Otherwise check EITHER option
+        current_controller?(*c) || current_action?(*a)
+      end
+    end
+  end
+
+  def current_path?(path)
+    c, a, _ = path.split('#')
+    current_controller?(c) && current_action?(a)
+  end
+
   def project_tab_class
     return "active" if current_page?(controller: "/projects", action: :edit, id: @project)
 
-    if ['services', 'hooks', 'deploy_keys', 'team_members'].include? controller.controller_name
-     "active"
+    if ['services', 'hooks', 'deploy_keys', 'protected_branches'].include? controller.controller_name
+      "active"
     end
   end
 
   def branches_tab_class
-    if current_page?(branches_project_repository_path(@project)) ||
-      current_controller?(:protected_branches) ||
-      current_page?(project_repository_path(@project))
+    if current_controller?(:protected_branches) ||
+      current_controller?(:branches) ||
+      current_page?(namespace_project_repository_path(@project.namespace,
+                                                      @project))
       'active'
     end
   end
 
   # Use nav_tab for save controller/action  but different params
-  def nav_tab key, value, &block
+  def nav_tab(key, value, &block)
     o = {}
     o[:class] = ""
-    o[:class] << " active" if params[key] == value
+
+    if value.nil?
+      o[:class] << " active" if params[key].blank?
+    else
+      o[:class] << " active" if params[key] == value
+    end
 
     if block_given?
       content_tag(:li, capture(&block), o)

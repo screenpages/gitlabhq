@@ -1,7 +1,0 @@
-= render layout: 'help/layout' do
-  %h3.page_title GitLab Flavored Markdown
-  %br
-
-  .help_body
-    = preserve do
-      = markdown File.read(Rails.root.join("doc", "markdown", "markdown.md"))

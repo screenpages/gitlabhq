@@ -1,49 +1,65 @@
 require 'spec_helper'
 
-describe "Users Security" do
-  describe "Project" do
-    before do
-      @u1 = create(:user)
-    end
+describe "Profile access", feature: true  do
+  before do
+    @u1 = create(:user)
+  end
 
-    describe "GET /login" do
-      it { new_user_session_path.should_not be_404_for :visitor }
-    end
+  describe "GET /login" do
+    it { expect(new_user_session_path).not_to be_not_found_for :visitor }
+  end
 
-    describe "GET /keys" do
-      subject { keys_path }
+  describe "GET /profile/keys" do
+    subject { profile_keys_path }
 
-      it { should be_allowed_for @u1 }
-      it { should be_allowed_for :admin }
-      it { should be_allowed_for :user }
-      it { should be_denied_for :visitor }
-    end
+    it { is_expected.to be_allowed_for @u1 }
+    it { is_expected.to be_allowed_for :admin }
+    it { is_expected.to be_allowed_for :user }
+    it { is_expected.to be_denied_for :visitor }
+  end
 
-    describe "GET /profile" do
-      subject { profile_path }
+  describe "GET /profile" do
+    subject { profile_path }
 
-      it { should be_allowed_for @u1 }
-      it { should be_allowed_for :admin }
-      it { should be_allowed_for :user }
-      it { should be_denied_for :visitor }
-    end
+    it { is_expected.to be_allowed_for @u1 }
+    it { is_expected.to be_allowed_for :admin }
+    it { is_expected.to be_allowed_for :user }
+    it { is_expected.to be_denied_for :visitor }
+  end
 
-    describe "GET /profile/account" do
-      subject { account_profile_path }
+  describe "GET /profile/account" do
+    subject { profile_account_path }
 
-      it { should be_allowed_for @u1 }
-      it { should be_allowed_for :admin }
-      it { should be_allowed_for :user }
-      it { should be_denied_for :visitor }
-    end
+    it { is_expected.to be_allowed_for @u1 }
+    it { is_expected.to be_allowed_for :admin }
+    it { is_expected.to be_allowed_for :user }
+    it { is_expected.to be_denied_for :visitor }
+  end
 
-    describe "GET /profile/design" do
-      subject { design_profile_path }
+  describe "GET /profile/preferences" do
+    subject { profile_preferences_path }
 
-      it { should be_allowed_for @u1 }
-      it { should be_allowed_for :admin }
-      it { should be_allowed_for :user }
-      it { should be_denied_for :visitor }
-    end
+    it { is_expected.to be_allowed_for @u1 }
+    it { is_expected.to be_allowed_for :admin }
+    it { is_expected.to be_allowed_for :user }
+    it { is_expected.to be_denied_for :visitor }
+  end
+
+  describe "GET /profile/audit_log" do
+    subject { audit_log_profile_path }
+
+    it { is_expected.to be_allowed_for @u1 }
+    it { is_expected.to be_allowed_for :admin }
+    it { is_expected.to be_allowed_for :user }
+    it { is_expected.to be_denied_for :visitor }
+  end
+
+  describe "GET /profile/notifications" do
+    subject { profile_notifications_path }
+
+    it { is_expected.to be_allowed_for @u1 }
+    it { is_expected.to be_allowed_for :admin }
+    it { is_expected.to be_allowed_for :user }
+    it { is_expected.to be_denied_for :visitor }
   end
 end

@@ -1,9 +1,26 @@
 module LoginHelpers
-  # Internal: Create and log in as a user of the specified role
+  # Internal: Log in as a specific user or a new user of a specific role
   #
-  # role - User role (e.g., :admin, :user)
-  def login_as(role)
-    @user = create(role)
+  # user_or_role - User object, or a role to create (e.g., :admin, :user)
+  #
+  # Examples:
+  #
+  #   # Create a user automatically
+  #   login_as(:user)
+  #
+  #   # Create an admin automatically
+  #   login_as(:admin)
+  #
+  #   # Provide an existing User record
+  #   user = create(:user)
+  #   login_as(user)
+  def login_as(user_or_role)
+    if user_or_role.kind_of?(User)
+      @user = user_or_role
+    else
+      @user = create(user_or_role)
+    end
+
     login_with(@user)
   end
 
@@ -13,11 +30,18 @@ module LoginHelpers
   def login_with(user)
     visit new_user_session_path
     fill_in "user_login", with: user.email
-    fill_in "user_password", with: "123456"
+    fill_in "user_password", with: "12345678"
     click_button "Sign in"
+    Thread.current[:current_user] = user
   end
 
+  # Requires Javascript driver.
   def logout
-    click_link "Logout" rescue nil
+    find(:css, ".fa.fa-sign-out").click
+  end
+
+  # Logout without JavaScript driver
+  def logout_direct
+    page.driver.submit :delete, '/users/sign_out', {}
   end
 end

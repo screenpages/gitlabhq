@@ -11,8 +11,9 @@ Gitlab::Application.configure do
   # Disable Rails's static asset server (Apache or nginx will already do this)
   config.serve_static_assets = false
 
-  # Compress JavaScripts and CSS
-  config.assets.compress = true
+  # Compress JavaScripts and CSS.
+  config.assets.js_compressor = :uglifier
+  # config.assets.css_compressor = :sass
 
   # Don't fallback to assets pipeline if a precompiled asset is missed
   config.assets.compile = true
@@ -33,14 +34,17 @@ Gitlab::Application.configure do
   # See everything in the log (default is :info)
   # config.log_level = :debug
 
+  # Suppress 'Rendered template ...' messages in the log
+  # source: http://stackoverflow.com/a/16369363
+  %w{render_template render_partial render_collection}.each do |event|
+    ActiveSupport::Notifications.unsubscribe "#{event}.action_view"
+  end
+
   # Prepend all log lines with the following tags
   # config.log_tags = [ :subdomain, :uuid ]
 
   # Use a different logger for distributed setups
   # config.logger = ActiveSupport::TaggedLogging.new(SyslogLogger.new)
-
-  # Use a different cache store in production
-  config.cache_store = :redis_store
 
   # Enable serving of images, stylesheets, and JavaScripts from an asset server
   # config.action_controller.asset_host = "http://assets.example.com"
@@ -52,7 +56,7 @@ Gitlab::Application.configure do
   # config.action_mailer.raise_delivery_errors = false
 
   # Enable threaded mode
-  config.threadsafe! unless $rails_rake_task
+  # config.threadsafe! unless $rails_rake_task
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation can not be found)
@@ -60,10 +64,6 @@ Gitlab::Application.configure do
 
   # Send deprecation notices to registered listeners
   config.active_support.deprecation = :notify
-
-  # Log the query plan for queries taking more than this (works
-  # with SQLite, MySQL, and PostgreSQL)
-  # config.active_record.auto_explain_threshold_in_seconds = 0.5
 
   config.action_mailer.delivery_method = :sendmail
   # Defaults to:
@@ -73,4 +73,8 @@ Gitlab::Application.configure do
   # # }
   config.action_mailer.perform_deliveries = true
   config.action_mailer.raise_delivery_errors = true
+
+  config.eager_load = true
+
+  config.allow_concurrency = false
 end

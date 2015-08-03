@@ -1,13 +1,16 @@
 class Admin::GroupsController < Admin::ApplicationController
-  before_filter :group, only: [:edit, :show, :update, :destroy, :project_update, :project_teams_update]
+  before_action :group, only: [:edit, :show, :update, :destroy, :project_update, :members_update]
 
   def index
-    @groups = Group.order('name ASC')
+    @groups = Group.all
+    @groups = @groups.sort(@sort = params[:sort])
     @groups = @groups.search(params[:name]) if params[:name].present?
-    @groups = @groups.page(params[:page]).per(20)
+    @groups = @groups.page(params[:page]).per(PER_PAGE)
   end
 
   def show
+    @members = @group.members.order("access_level DESC").page(params[:members_page]).per(PER_PAGE)
+    @projects = @group.projects.page(params[:projects_page]).per(PER_PAGE)
   end
 
   def new
@@ -18,59 +21,33 @@ class Admin::GroupsController < Admin::ApplicationController
   end
 
   def create
-    @group = Group.new(params[:group])
-    @group.path = @group.name.dup.parameterize if @group.name
-    @group.owner = current_user
+    @group = Group.new(group_params)
+    @group.name = @group.path.dup unless @group.name
 
     if @group.save
+      @group.add_owner(current_user)
       redirect_to [:admin, @group], notice: 'Group was successfully created.'
     else
-      render action: "new"
+      render "new"
     end
   end
 
   def update
-    group_params = params[:group].dup
-    owner_id =group_params.delete(:owner_id)
-
-    if owner_id
-      @group.owner = User.find(owner_id)
-    end
-
     if @group.update_attributes(group_params)
       redirect_to [:admin, @group], notice: 'Group was successfully updated.'
     else
-      render action: "edit"
+      render "edit"
     end
   end
 
-  def project_update
-    project_ids = params[:project_ids]
-
-    Project.where(id: project_ids).each do |project|
-      project.transfer(@group)
-    end
-
-    redirect_to :back, notice: 'Group was successfully updated.'
-  end
-
-  def remove_project
-    @project = Project.find(params[:project_id])
-    @project.transfer(nil)
-
-    redirect_to :back, notice: 'Group was successfully updated.'
-  end
-
-  def project_teams_update
-    @group.add_users_to_project_teams(params[:user_ids].split(','), params[:project_access])
+  def members_update
+    @group.add_users(params[:user_ids].split(','), params[:access_level], current_user)
 
     redirect_to [:admin, @group], notice: 'Users were successfully added.'
   end
 
   def destroy
-    @group.truncate_teams
-
-    @group.destroy
+    DestroyGroupService.new(@group, current_user).execute
 
     redirect_to admin_groups_path, notice: 'Group was successfully deleted.'
   end
@@ -78,6 +55,10 @@ class Admin::GroupsController < Admin::ApplicationController
   private
 
   def group
-    @group = Group.find_by_path(params[:id])
+    @group = Group.find_by(path: params[:id])
+  end
+
+  def group_params
+    params.require(:group).permit(:name, :description, :path, :avatar)
   end
 end

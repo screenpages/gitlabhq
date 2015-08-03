@@ -15,46 +15,59 @@
           $(this).html totalIssues + 1
         else
           $(this).html totalIssues - 1
-    $("body").on "click", ".issues-filters .dropdown-menu a", ->
+    $("body").on "click", ".issues-other-filters .dropdown-menu a", ->
       $('.issues-list').block(
         message: null,
         overlayCSS:
           backgroundColor: '#DDD'
           opacity: .4
       )
-  
+
   reload: ->
     Issues.initSelects()
     Issues.initChecks()
     $('#filter_issue_search').val($('#issue_search').val())
 
   initSelects: ->
-    $("#update_status").chosen()
-    $("#update_assignee_id").chosen()
-    $("#update_milestone_id").chosen()
-    $("#label_name").chosen()
-    $("#assignee_id").chosen()
-    $("#milestone_id").chosen()
+    $("select#update_status").select2(width: 'resolve', dropdownAutoWidth: true)
+    $("select#update_assignee_id").select2(width: 'resolve', dropdownAutoWidth: true)
+    $("select#update_milestone_id").select2(width: 'resolve', dropdownAutoWidth: true)
+    $("select#label_name").select2(width: 'resolve', dropdownAutoWidth: true)
     $("#milestone_id, #assignee_id, #label_name").on "change", ->
       $(this).closest("form").submit()
 
   initChecks: ->
     $(".check_all_issues").click ->
-      $(".selected_issue").attr "checked", @checked
+      $(".selected_issue").prop("checked", @checked)
       Issues.checkChanged()
 
     $(".selected_issue").bind "change", Issues.checkChanged
 
-
+  # Make sure we trigger ajax request only after user stop typing
   initSearch: ->
-    form = $("#issue_search_form")
-    last_terms = ""
+    @timer = null
     $("#issue_search").keyup ->
-      terms = $(this).val()
-      unless terms is last_terms
-        last_terms = terms
-        if terms.length >= 2 or terms.length is 0
-          form.submit()
+      clearTimeout(@timer)
+      @timer = setTimeout(Issues.filterResults, 500)
+
+  filterResults: =>
+    form = $("#issue_search_form")
+    search = $("#issue_search").val()
+    $('.issues-holder').css("opacity", '0.5')
+    issues_url = form.attr('action') + '? '+ form.serialize()
+
+    $.ajax
+      type: "GET"
+      url: form.attr('action')
+      data: form.serialize()
+      complete: ->
+        $('.issues-holder').css("opacity", '1.0')
+      success: (data) ->
+        $('.issues-holder').html(data.html)
+        # Change url so if user reload a page - search results are saved
+        History.replaceState {page: issues_url}, document.title, issues_url
+        Issues.reload()
+      dataType: "json"
 
   checkChanged: ->
     checked_issues = $(".selected_issue:checked")
@@ -64,9 +77,9 @@
         ids.push $(value).attr("data-id")
 
       $("#update_issues_ids").val ids
-      $(".issues-filters").hide()
+      $(".issues-other-filters").hide()
       $(".issues_bulk_update").show()
     else
       $("#update_issues_ids").val []
       $(".issues_bulk_update").hide()
-      $(".issues-filters").show()
+      $(".issues-other-filters").show()

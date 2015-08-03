@@ -42,13 +42,13 @@ module API
       post ":id/milestones" do
         authorize! :admin_milestone, user_project
         required_attributes! [:title]
-
         attrs = attributes_for_keys [:title, :description, :due_date]
-        @milestone = user_project.milestones.new attrs
-        if @milestone.save
-          present @milestone, with: Entities::Milestone
+        milestone = ::Milestones::CreateService.new(user_project, current_user, attrs).execute
+
+        if milestone.valid?
+          present milestone, with: Entities::Milestone
         else
-          not_found!
+          render_api_error!("Failed to create milestone #{milestone.errors.messages}", 400)
         end
       end
 
@@ -65,15 +65,31 @@ module API
       #   PUT /projects/:id/milestones/:milestone_id
       put ":id/milestones/:milestone_id" do
         authorize! :admin_milestone, user_project
-
-        @milestone = user_project.milestones.find(params[:milestone_id])
         attrs = attributes_for_keys [:title, :description, :due_date, :state_event]
-        if @milestone.update_attributes attrs
-          present @milestone, with: Entities::Milestone
+        milestone = user_project.milestones.find(params[:milestone_id])
+        milestone = ::Milestones::UpdateService.new(user_project, current_user, attrs).execute(milestone)
+
+        if milestone.valid?
+          present milestone, with: Entities::Milestone
         else
-          not_found!
+          render_api_error!("Failed to update milestone #{milestone.errors.messages}", 400)
         end
       end
+
+      # Get all issues for a single project milestone
+      #
+      # Parameters:
+      #   id (required) - The ID of a project
+      #   milestone_id (required) - The ID of a project milestone
+      # Example Request:
+      #   GET /projects/:id/milestones/:milestone_id/issues
+      get ":id/milestones/:milestone_id/issues" do
+        authorize! :read_milestone, user_project
+
+        @milestone = user_project.milestones.find(params[:milestone_id])
+        present paginate(@milestone.issues), with: Entities::Issue
+      end
+
     end
   end
 end

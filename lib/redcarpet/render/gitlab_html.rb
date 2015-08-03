@@ -1,38 +1,46 @@
-class Redcarpet::Render::GitlabHTML < Redcarpet::Render::HTML
+require 'active_support/core_ext/string/output_safety'
 
+class Redcarpet::Render::GitlabHTML < Redcarpet::Render::HTML
   attr_reader :template
   alias_method :h, :template
 
-  def initialize(template, options = {})
+  def initialize(template, color_scheme, options = {})
     @template = template
-    @project = @template.instance_variable_get("@project")
-    super options
+    @color_scheme = color_scheme
+    @options = options.dup
+
+    @options.reverse_merge!(
+      # Handled further down the line by Gitlab::Markdown::SanitizationFilter
+      escape_html: false,
+      project: @template.instance_variable_get("@project")
+    )
+
+    super(options)
   end
 
+  def normal_text(text)
+    ERB::Util.html_escape_once(text)
+  end
+
+  # Stolen from Rugments::Plugins::Redcarpet as this module is not required
+  # from Rugments's gem root.
   def block_code(code, language)
-    options = { options: {encoding: 'utf-8'} }
-    lexer = Pygments::Lexer.find(language) # language can be an alias
-    options.merge!(lexer: lexer.aliases[0].downcase) if lexer # downcase is required
+    lexer = Rugments::Lexer.find_fancy(language, code) || Rugments::Lexers::PlainText
 
-    # New lines are placed to fix an rendering issue
-    # with code wrapped inside <h1> tag for next case:
-    #
-    # # Title kinda h1
-    #
-    #     ruby code here
-    #
-    <<-HTML
+    # XXX HACK: Redcarpet strips hard tabs out of code blocks,
+    # so we assume you're not using leading spaces that aren't tabs,
+    # and just replace them here.
+    if lexer.tag == 'make'
+      code.gsub!(/^    /, "\t")
+    end
 
-       <div class="#{h.user_color_scheme_class}">#{Pygments.highlight(code, options)}</div>
-
-    HTML
-  end
-
-  def link(link, title, content)
-    h.link_to_gfm(content, link, title: title)
+    formatter = Rugments::Formatters::HTML.new(
+      cssclass: "code highlight #{@color_scheme} #{lexer.tag}"
+    )
+    formatter.format(lexer.lex(code))
   end
 
   def postprocess(full_document)
-    h.gfm(full_document)
+    h.gfm_with_options(full_document, @options)
   end
 end

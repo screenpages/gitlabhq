@@ -11,89 +11,159 @@ class ProjectTeam
   #   @team << [@user, :master]
   #   @team << [@users, :master]
   #
-  def << args
-    users = args.first
+  def <<(args)
+    users, access, current_user = *args
 
     if users.respond_to?(:each)
-      add_users(users, args.second)
+      add_users(users, access, current_user)
     else
-      add_user(users, args.second)
+      add_user(users, access, current_user)
     end
   end
 
-  def get_tm user_id
-    project.users_projects.find_by_user_id(user_id)
+  def find(user_id)
+    user = project.users.find_by(id: user_id)
+
+    if group
+      user ||= group.users.find_by(id: user_id)
+    end
+
+    user
   end
 
-  def add_user(user, access)
-    add_users_ids([user.id], access)
+  def find_member(user_id)
+    member = project.project_members.find_by(user_id: user_id)
+
+    # If user is not in project members
+    # we should check for group membership
+    if group && !member
+      member = group.group_members.find_by(user_id: user_id)
+    end
+
+    member
   end
 
-  def add_users(users, access)
-    add_users_ids(users.map(&:id), access)
-  end
-
-  def add_users_ids(user_ids, access)
-    UsersProject.add_users_into_projects(
+  def add_users(users, access, current_user = nil)
+    ProjectMember.add_users_into_projects(
       [project.id],
-      user_ids,
-      access
+      users,
+      access,
+      current_user
     )
+  end
+
+  def add_user(user, access, current_user = nil)
+    add_users([user], access, current_user)
   end
 
   # Remove all users from project team
   def truncate
-    UsersProject.truncate_team(project)
+    ProjectMember.truncate_team(project)
+  end
+
+  def users
+    members
   end
 
   def members
-    project.users_projects
+    @members ||= fetch_members
   end
 
   def guests
-    members.guests.map(&:user)
+    @guests ||= fetch_members(:guests)
   end
 
   def reporters
-    members.reporters.map(&:user)
+    @reporters ||= fetch_members(:reporters)
   end
 
   def developers
-    members.developers.map(&:user)
+    @developers ||= fetch_members(:developers)
   end
 
   def masters
-    members.masters.map(&:user)
+    @masters ||= fetch_members(:masters)
   end
 
-  def import(source_project)
+  def import(source_project, current_user = nil)
     target_project = project
 
-    source_team = source_project.users_projects.all
-    target_team = target_project.users_projects.all
-    target_user_ids = target_team.map(&:user_id)
+    source_members = source_project.project_members.to_a
+    target_user_ids = target_project.project_members.pluck(:user_id)
 
-    source_team.reject! do |tm|
+    source_members.reject! do |member|
       # Skip if user already present in team
-      target_user_ids.include?(tm.user_id)
+      !member.invite? && target_user_ids.include?(member.user_id)
     end
 
-    source_team.map! do |tm|
-      new_tm = tm.dup
-      new_tm.id = nil
-      new_tm.project_id = target_project.id
-      new_tm.skip_git = true
-      new_tm
+    source_members.map! do |member|
+      new_member = member.dup
+      new_member.id = nil
+      new_member.source = target_project
+      new_member.created_by = current_user
+      new_member
     end
 
-    UsersProject.transaction do
-      source_team.each do |tm|
-        tm.save
+    ProjectMember.transaction do
+      source_members.each do |member|
+        member.save
       end
     end
 
     true
   rescue
     false
+  end
+
+  def guest?(user)
+    max_member_access(user.id) == Gitlab::Access::GUEST
+  end
+
+  def reporter?(user)
+    max_member_access(user.id) == Gitlab::Access::REPORTER
+  end
+
+  def developer?(user)
+    max_member_access(user.id) == Gitlab::Access::DEVELOPER
+  end
+
+  def master?(user)
+    max_member_access(user.id) == Gitlab::Access::MASTER
+  end
+
+  def member?(user_id)
+    !!find_member(user_id)
+  end
+
+  def max_member_access(user_id)
+    access = []
+    access << project.project_members.find_by(user_id: user_id).try(:access_field)
+
+    if group
+      access << group.group_members.find_by(user_id: user_id).try(:access_field)
+    end
+
+    access.compact.max
+  end
+
+  private
+
+  def fetch_members(level = nil)
+    project_members = project.project_members
+    group_members = group ? group.group_members : []
+
+    if level
+      project_members = project_members.send(level)
+      group_members = group_members.send(level) if group
+    end
+
+    user_ids = project_members.pluck(:user_id)
+    user_ids.push(*group_members.pluck(:user_id)) if group
+
+    User.where(id: user_ids)
+  end
+
+  def group
+    project.group
   end
 end

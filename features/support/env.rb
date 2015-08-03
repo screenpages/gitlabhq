@@ -1,51 +1,32 @@
-require 'simplecov' unless ENV['CI']
+if ENV['SIMPLECOV']
+  require 'simplecov'
+end
 
-if ENV['TRAVIS']
+if ENV['COVERALLS']
   require 'coveralls'
-  Coveralls.wear!
+  Coveralls.wear_merged!
 end
 
 ENV['RAILS_ENV'] = 'test'
 require './config/environment'
-
-require 'rspec'
-require 'database_cleaner'
-require 'spinach/capybara'
+require 'rspec/expectations'
 require 'sidekiq/testing/inline'
 
+require_relative 'capybara'
+require_relative 'db_cleaner'
 
-%w(valid_commit select2_helper test_env).each do |f|
+%w(select2_helper test_env repo_helpers).each do |f|
   require Rails.root.join('spec', 'support', f)
 end
 
-Dir["#{Rails.root}/features/steps/shared/*.rb"].each {|file| require file}
+Dir["#{Rails.root}/features/steps/shared/*.rb"].each { |file| require file }
 
 WebMock.allow_net_connect!
-#
-# JS driver
-#
-require 'capybara/poltergeist'
-Capybara.javascript_driver = :poltergeist
-Spinach.hooks.on_tag("javascript") do
-  ::Capybara.current_driver = ::Capybara.javascript_driver
-end
-Capybara.default_wait_time = 10
-Capybara.ignore_hidden_elements = false
-
-DatabaseCleaner.strategy = :truncation
-
-Spinach.hooks.before_scenario do
-  TestEnv.init(mailer: false)
-
-  DatabaseCleaner.start
-end
-
-Spinach.hooks.after_scenario do
-  DatabaseCleaner.clean
-end
 
 Spinach.hooks.before_run do
-  RSpec::Mocks::setup self
+  include RSpec::Mocks::ExampleMethods
+  RSpec::Mocks.setup
+  TestEnv.init(mailer: false)
 
   include FactoryGirl::Syntax::Methods
 end

@@ -1,119 +1,181 @@
 require_relative 'shell_env'
-require_relative 'grack_ldap'
-require_relative 'grack_helpers'
 
 module Grack
   class Auth < Rack::Auth::Basic
-    include LDAP
-    include Helpers
 
-    attr_accessor :user, :project, :ref, :env
+    attr_accessor :user, :project, :env
 
     def call(env)
       @env = env
       @request = Rack::Request.new(env)
       @auth = Request.new(env)
 
+      @gitlab_ci = false
+
       # Need this patch due to the rails mount
-      @env['PATH_INFO'] = @request.path
+      # Need this if under RELATIVE_URL_ROOT
+      unless Gitlab.config.gitlab.relative_url_root.empty?
+        # If website is mounted using relative_url_root need to remove it first
+        @env['PATH_INFO'] = @request.path.sub(Gitlab.config.gitlab.relative_url_root,'')
+      else
+        @env['PATH_INFO'] = @request.path
+      end
+
       @env['SCRIPT_NAME'] = ""
 
       auth!
+
+      if project && authorized_request?
+        @app.call(env)
+      elsif @user.nil? && !@gitlab_ci
+        unauthorized
+      else
+        render_not_found
+      end
     end
 
     private
 
     def auth!
-      return render_not_found unless project
+      return unless @auth.provided?
 
-      if @auth.provided?
-        return bad_request unless @auth.basic?
+      return bad_request unless @auth.basic?
 
-        # Authentication with username and password
-        login, password = @auth.credentials
+      # Authentication with username and password
+      login, password = @auth.credentials
 
-        @user = authenticate_user(login, password)
-
-        if @user
-          Gitlab::ShellEnv.set_env(@user)
-          @env['REMOTE_USER'] = @auth.username
-        else
-          return unauthorized
-        end
-
-      else
-        return unauthorized unless project.public
+      # Allow authentication for GitLab CI service
+      # if valid token passed
+      if gitlab_ci_request?(login, password)
+        @gitlab_ci = true
+        return
       end
 
-      if authorized_git_request?
-        @app.call(env)
-      else
-        unauthorized
+      @user = authenticate_user(login, password)
+
+      if @user
+        Gitlab::ShellEnv.set_env(@user)
+        @env['REMOTE_USER'] = @auth.username
       end
     end
 
-    def authorized_git_request?
-      # Git upload and receive
-      if @request.get?
-        authorize_request(@request.params['service'])
-      elsif @request.post?
-        authorize_request(File.basename(@request.path))
-      else
-        false
+    def gitlab_ci_request?(login, password)
+      if login == "gitlab-ci-token" && project && project.gitlab_ci?
+        token = project.gitlab_ci_service.token
+
+        if token.present? && token == password && git_cmd == 'git-upload-pack'
+          return true
+        end
+      end
+
+      false
+    end
+
+    def oauth_access_token_check(login, password)
+      if login == "oauth2" && git_cmd == 'git-upload-pack' && password.present?
+        token = Doorkeeper::AccessToken.by_token(password)
+        token && token.accessible? && User.find_by(id: token.resource_owner_id)
       end
     end
 
     def authenticate_user(login, password)
-      user = User.find_by_email(login) || User.find_by_username(login)
+      user = Gitlab::Auth.new.find(login, password)
 
-      # If the provided login was not a known email or username
-      # then user is nil
-      if user.nil? || user.ldap_user?
-        # Second chance - try LDAP authentication
-        return nil unless ldap_conf.enabled
-
-        auth = Gitlab::Auth.new
-        auth.ldap_auth(login, password)
-      else
-        return user if user.valid_password?(password)
+      unless user
+        user = oauth_access_token_check(login, password)
       end
+
+      # If the user authenticated successfully, we reset the auth failure count
+      # from Rack::Attack for that IP. A client may attempt to authenticate
+      # with a username and blank password first, and only after it receives
+      # a 401 error does it present a password. Resetting the count prevents
+      # false positives from occurring.
+      #
+      # Otherwise, we let Rack::Attack know there was a failed authentication
+      # attempt from this IP. This information is stored in the Rails cache
+      # (Redis) and will be used by the Rack::Attack middleware to decide
+      # whether to block requests from this IP.
+      config = Gitlab.config.rack_attack.git_basic_auth
+
+      if config.enabled
+        if user
+          # A successful login will reset the auth failure count from this IP
+          Rack::Attack::Allow2Ban.reset(@request.ip, config)
+        else
+          banned = Rack::Attack::Allow2Ban.filter(@request.ip, config) do
+            # Unless the IP is whitelisted, return true so that Allow2Ban
+            # increments the counter (stored in Rails.cache) for the IP
+            if config.ip_whitelist.include?(@request.ip)
+              false
+            else
+              true
+            end
+          end
+
+          if banned
+            Rails.logger.info "IP #{@request.ip} failed to login " \
+              "as #{login} but has been temporarily banned from Git auth"
+          end
+        end
+      end
+
+      user
     end
 
-    def authorize_request(service)
-      case service
-      when 'git-upload-pack'
-        project.public || can?(user, :download_code, project)
-      when'git-receive-pack'
-        action = if project.protected_branch?(ref)
-                   :push_code_to_protected_branches
-                 else
-                   :push_code
-                 end
+    def authorized_request?
+      return true if @gitlab_ci
 
-        can?(user, action, project)
+      case git_cmd
+      when *Gitlab::GitAccess::DOWNLOAD_COMMANDS
+        if user
+          Gitlab::GitAccess.new(user, project).download_access_check.allowed?
+        elsif project.public?
+          # Allow clone/fetch for public projects
+          true
+        else
+          false
+        end
+      when *Gitlab::GitAccess::PUSH_COMMANDS
+        if user
+          # Skip user authorization on upload request.
+          # It will be done by the pre-receive hook in the repository.
+          true
+        else
+          false
+        end
       else
         false
       end
     end
 
+    def git_cmd
+      if @request.get?
+        @request.params['service']
+      elsif @request.post?
+        File.basename(@request.path)
+      else
+        nil
+      end
+    end
+
     def project
-      @project ||= project_by_path(@request.path_info)
+      return @project if defined?(@project)
+
+      @project = project_by_path(@request.path_info)
     end
 
-    def ref
-      @ref ||= parse_ref
+    def project_by_path(path)
+      if m = /^([\w\.\/-]+)\.git/.match(path).to_a
+        path_with_namespace = m.last
+        path_with_namespace.gsub!(/\.wiki$/, '')
+
+        path_with_namespace[0] = '' if path_with_namespace.start_with?('/')
+        Project.find_with_namespace(path_with_namespace)
+      end
     end
 
-    def parse_ref
-      input = if @env["HTTP_CONTENT_ENCODING"] =~ /gzip/
-                Zlib::GzipReader.new(@request.body).read
-              else
-                @request.body.read
-              end
-
-      # Need to reset seek point
-      @request.body.rewind
-      /refs\/heads\/([\w\.-]+)/n.match(input.force_encoding('ascii-8bit')).to_a.last
+    def render_not_found
+      [404, { "Content-Type" => "text/plain" }, ["Not Found"]]
     end
   end
 end

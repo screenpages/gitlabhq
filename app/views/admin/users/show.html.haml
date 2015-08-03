@@ -1,130 +1,163 @@
-%h3.page_title
-  User:
-  = @admin_user.name
-  - if @admin_user.blocked?
-    %span.cred (Blocked)
-  - if @admin_user.admin
-    %span.cred (Admin)
-
-  .pull-right
-    = link_to edit_admin_user_path(@admin_user), class: "btn grouped btn-small" do
-      %i.icon-edit
-      Edit
-    - unless @admin_user == current_user
-      - if @admin_user.blocked?
-        = link_to 'Unblock', unblock_admin_user_path(@admin_user), method: :put, class: "btn grouped btn-small success"
-      - else
-        = link_to 'Block', block_admin_user_path(@admin_user), confirm: 'USER WILL BE BLOCKED! Are you sure?', method: :put, class: "btn grouped btn-small btn-remove"
-      = link_to 'Destroy', [:admin, @admin_user], confirm: "USER #{@admin_user.name} WILL BE REMOVED! Are you sure?", method: :delete, class: "btn grouped btn-small btn-remove"
-%hr
+- page_title @user.name, "Users"
+= render 'admin/users/head'
 
 .row
-  .span6
-    .ui-box
-      %h5.title
+  .col-md-6
+    .panel.panel-default
+      .panel-heading
+        = @user.name
+      %ul.well-list
+        %li
+          = image_tag avatar_icon(@user.email, 60), class: "avatar s60"
+        %li
+          %span.light Profile page:
+          %strong
+            = link_to user_path(@user) do
+              = @user.username
+    = render 'users/profile', user: @user
+
+    .panel.panel-default
+      .panel-heading
         Account:
-        .pull-right
-          = image_tag gravatar_icon(@admin_user.email, 32), class:"avatar s32", alt:""
       %ul.well-list
         %li
           %span.light Name:
-          %strong= @admin_user.name
+          %strong= @user.name
         %li
           %span.light Username:
           %strong
-            = @admin_user.username
+            = @user.username
         %li
           %span.light Email:
           %strong
-            = mail_to @admin_user.email
+            = mail_to @user.email
+        - @user.emails.each do |email|
+          %li
+            %span.light Secondary email:
+            %strong= email.email
+            = link_to remove_email_admin_user_path(@user, email), data: { confirm: "Are you sure you want to remove #{email.email}?" }, method: :delete, class: "btn-xs btn btn-remove pull-right", title: 'Remove secondary email', id: "remove_email_#{email.id}" do
+              %i.fa.fa-times
 
+        %li.two-factor-status
+          %span.light Two-factor Authentication:
+          %strong{class: @user.two_factor_enabled? ? 'cgreen' : 'cred'}
+            - if @user.two_factor_enabled?
+              Enabled
+              = link_to 'Disable', disable_two_factor_admin_user_path(@user), data: {confirm: 'Are you sure?'}, method: :patch, class: 'btn btn-xs btn-remove pull-right', title: 'Disable Two-factor Authentication'
+            - else
+              Disabled
+
+        %li
+          %span.light Can create groups:
+          %strong
+            = @user.can_create_group ? "Yes" : "No"
+        %li
+          %span.light Personal projects limit:
+          %strong
+            = @user.projects_limit
         %li
           %span.light Member since:
           %strong
-            = @admin_user.created_at.stamp("Nov 12, 2031")
+            = @user.created_at.stamp("Nov 12, 2031")
+        - if @user.confirmed_at
+          %li
+            %span.light Confirmed at:
+            %strong
+              = @user.confirmed_at.stamp("Nov 12, 2031")
+        - else
+          %li
+            %span.light Confirmed:
+            %strong.cred
+              No
+
+        %li
+          %span.light Current sign-in at:
+          %strong
+            - if @user.current_sign_in_at
+              = @user.current_sign_in_at.stamp("Nov 12, 2031")
+            - else
+              never
 
         %li
           %span.light Last sign-in at:
           %strong
-            - if @admin_user.last_sign_in_at
-              = @admin_user.last_sign_in_at.stamp("Nov 12, 2031")
+            - if @user.last_sign_in_at
+              = @user.last_sign_in_at.stamp("Nov 12, 2031")
             - else
               never
 
-        - if @admin_user.ldap_user?
+        %li
+          %span.light Sign-in count:
+          %strong
+            = @user.sign_in_count
+
+        - if @user.ldap_user?
           %li
             %span.light LDAP uid:
             %strong
-              = @admin_user.extern_uid
+              = @user.ldap_identity.extern_uid
 
-        - if @admin_user.created_by
+        - if @user.created_by
           %li
             %span.light Created by:
             %strong
-              = link_to @admin_user.created_by.name, [:admin, @admin_user.created_by]
-    %hr
-    %h5
-      Add User to Projects
-      %small
-        Read more about project permissions
-        %strong= link_to "here", help_permissions_path, class: "vlink"
-    %br
-    = form_tag team_update_admin_user_path(@admin_user), class: "bulk_import", method: :put  do
-      .control-group
-        = label_tag :project_ids, "Projects", class: 'control-label'
-        .controls
-          = select_tag :project_ids, options_from_collection_for_select(@not_in_projects , :id, :name_with_namespace),  multiple: true, data: {placeholder: 'Select projects'}, class: 'chosen span3'
-      .control-group
-        = label_tag :project_access, "Project Access", class: 'control-label'
-        .controls
-          = select_tag :project_access, options_for_select(Project.access_options), class: "project-access-select chosen span3"
+              = link_to @user.created_by.name, [:admin, @user.created_by]
 
-      .form-actions
-        = submit_tag 'Add', class: "btn btn-create"
-        .pull-right
-    %br
+  .col-md-6
+    - unless @user == current_user
+      - if @user.blocked?
+        .panel.panel-info
+          .panel-heading
+            This user is blocked
+          .panel-body
+            %p Blocking user has the following effects:
+            %ul
+              %li User will not be able to login
+              %li User will not be able to access git repositories
+              %li Personal projects will be left
+              %li Owned groups will be left
+            %br
+            = link_to 'Unblock user', unblock_admin_user_path(@user), method: :put, class: "btn btn-info", data: { confirm: 'Are you sure?' }
+      - else
+        .panel.panel-warning
+          .panel-heading
+            Block this user
+          .panel-body
+            %p Blocking user has the following effects:
+            %ul
+              %li User will not be able to login
+              %li User will not be able to access git repositories
+              %li User will be removed from joined projects and groups
+              %li Personal projects will be left
+              %li Owned groups will be left
+            %br
+            = link_to 'Block user', block_admin_user_path(@user), data: { confirm: 'USER WILL BE BLOCKED! Are you sure?' }, method: :put, class: "btn btn-warning"
+      - if @user.access_locked?
+        .panel.panel-info
+          .panel-heading
+            This account has been locked
+          .panel-body
+            %p This user has been temporarily locked due to excessive number of failed logins. You may manually unlock the account.
+            %br
+            = link_to 'Unlock user', unlock_admin_user_path(@user), method: :put, class: "btn btn-info", data: { confirm: 'Are you sure?' }
 
-    - if @admin_user.owned_groups.present?
-      .ui-box
-        %h5.title Owned groups:
-        %ul.well-list
-          - @admin_user.groups.each do |group|
-            %li
-              %strong= link_to group.name, admin_group_path(group)
-
-    - if @admin_user.owned_teams.present?
-      .ui-box
-        %h5.title Owned teams:
-        %ul.well-list
-          - @admin_user.owned_teams.each do |team|
-            %li
-              %strong= link_to team.name, admin_team_path(team)
-
-
-  .span6
-    .ui-box
-      %h5.title Projects (#{@projects.count})
-      %ul.well-list
-        - @projects.sort_by(&:name_with_namespace).each do |project|
-          - tm = project.team.get_tm(@admin_user.id)
-          %li
-            = link_to admin_project_path(project), class: dom_class(project) do
-              - if project.namespace
-                = project.namespace.human_name
-                \/
-              %strong.well-title
-                = truncate(project.name, length: 45)
-
-            - if project.owner == @admin_user
-              %span.label.label-info owner
-
-            - if tm
-              .pull-right
-                = link_to edit_admin_project_member_path(project, tm.user), class: "btn grouped btn-small" do
-                  %i.icon-edit
-                = link_to admin_project_member_path(project, tm.user), confirm: remove_from_project_team_message(project, @admin_user), method: :delete, class: "btn grouped btn-small btn-remove" do
-                  %i.icon-remove
-
-              .pull-right.light
-                = tm.project_access_human
-                &nbsp;
+      .panel.panel-danger
+        .panel-heading
+          Remove user
+        .panel-body
+          - if @user.can_be_removed?
+            %p Deleting a user has the following effects:
+            %ul
+              %li All user content like authored issues, snippets, comments will be removed
+              - rp = @user.personal_projects.count
+              - unless rp.zero?
+                %li #{pluralize rp, 'personal project'} will be removed and cannot be restored
+            %br
+            = link_to 'Remove user', [:admin, @user], data: { confirm: "USER #{@user.name} WILL BE REMOVED! Are you sure?" }, method: :delete, class: "btn btn-remove"
+          - else
+            - if @user.solo_owned_groups.present?
+              %p
+                This user is currently an owner in these groups:
+                %strong #{@user.solo_owned_groups.map(&:name).join(', ')}
+              %p
+                You must transfer ownership or delete these groups before you can delete this user.

@@ -1,4 +1,4 @@
-Feature: Project active tab
+Feature: Project Active Tab
   Background:
     Given I sign in as a user
     And I own a project
@@ -35,9 +35,9 @@ Feature: Project active tab
     Then the active main tab should be Merge Requests
     And no other main tabs should be active
 
-  Scenario: On Project Wall
-    Given I visit my project's wall page
-    Then the active main tab should be Wall
+  Scenario: On Project Members
+    Given I visit my project's members page
+    Then the active main tab should be Members
     And no other main tabs should be active
 
   Scenario: On Project Wiki
@@ -52,48 +52,27 @@ Feature: Project active tab
     Then the active main tab should be Home
     And no other main tabs should be active
 
-  #Scenario: On Project Settings/Attachments
-    #Given I visit my project's home page
-    #And I click the "Attachments" tab
-    #Then the active sub tab should be Attachments
-    #And no other sub tabs should be active
-    #And the active main tab should be Home
-
-  #Scenario: On Project Settings/Snippets
-    #Given I visit my project's home page
-    #And I click the "Snippets" tab
-    #Then the active sub tab should be Snippets
-    #And no other sub tabs should be active
-    #And the active main tab should be Home
-
   # Sub Tabs: Settings
-
-  Scenario: On Project Settings/Team
-    Given I visit my project's settings page
-    And I click the "Team" tab
-    Then the active sub tab should be Team
-    And no other sub tabs should be active
-    And the active main tab should be Settings
 
   Scenario: On Project Settings/Edit
     Given I visit my project's settings page
     And I click the "Edit" tab
-    Then the active sub tab should be Edit
-    And no other sub tabs should be active
+    Then the active sub nav should be Edit
+    And no other sub navs should be active
     And the active main tab should be Settings
 
   Scenario: On Project Settings/Hooks
     Given I visit my project's settings page
     And I click the "Hooks" tab
-    Then the active sub tab should be Hooks
-    And no other sub tabs should be active
+    Then the active sub nav should be Hooks
+    And no other sub navs should be active
     And the active main tab should be Settings
 
   Scenario: On Project Settings/Deploy Keys
     Given I visit my project's settings page
     And I click the "Deploy Keys" tab
-    Then the active sub tab should be Deploy Keys
-    And no other sub tabs should be active
+    Then the active sub nav should be Deploy Keys
+    And no other sub navs should be active
     And the active main tab should be Settings
 
   # Sub Tabs: Commits
@@ -125,24 +104,19 @@ Feature: Project active tab
     And no other sub tabs should be active
     And the active main tab should be Commits
 
-  # Sub Tabs: Issues
-
   Scenario: On Project Issues/Browse
     Given I visit my project's issues page
-    Then the active sub tab should be Browse Issues
-    And no other sub tabs should be active
-    And the active main tab should be Issues
+    Then the active main tab should be Issues
+    And no other main tabs should be active
 
   Scenario: On Project Issues/Milestones
     Given I visit my project's issues page
     And I click the "Milestones" tab
-    Then the active sub tab should be Milestones
-    And no other sub tabs should be active
-    And the active main tab should be Issues
+    Then the active main tab should be Milestones
+    And no other main tabs should be active
 
   Scenario: On Project Issues/Labels
     Given I visit my project's issues page
     And I click the "Labels" tab
-    Then the active sub tab should be Labels
-    And no other sub tabs should be active
-    And the active main tab should be Issues
+    Then the active main tab should be Labels
+    And no other main tabs should be active

@@ -1,108 +1,115 @@
 class Admin::UsersController < Admin::ApplicationController
-  before_filter :admin_user, only: [:show, :edit, :update, :destroy]
+  before_action :user, except: [:index, :new, :create]
 
   def index
-    @admin_users = User.scoped
-    @admin_users = @admin_users.filter(params[:filter])
-    @admin_users = @admin_users.search(params[:name]) if params[:name].present?
-    @admin_users = @admin_users.alphabetically.page(params[:page])
+    @users = User.order_name_asc.filter(params[:filter])
+    @users = @users.search(params[:name]) if params[:name].present?
+    @users = @users.sort(@sort = params[:sort])
+    @users = @users.page(params[:page])
   end
 
   def show
-    # Projects user can be added to
-    @not_in_projects = Project.scoped
-    @not_in_projects = @not_in_projects.without_user(admin_user) if admin_user.authorized_projects.present?
-
-    # Projects he already own or joined
-    @projects = admin_user.authorized_projects
   end
 
-  def team_update
-    UsersProject.add_users_into_projects(
-      params[:project_ids],
-      [admin_user.id],
-      params[:project_access]
-    )
-
-    redirect_to [:admin, admin_user], notice: 'Teams were successfully updated.'
+  def projects
+    @personal_projects = user.personal_projects
+    @joined_projects = user.projects.joined(@user)
   end
 
+  def groups
+  end
+
+  def keys
+    @keys = user.keys
+  end
 
   def new
-    @admin_user = User.new.with_defaults
+    @user = User.new
   end
 
   def edit
-    admin_user
+    user
   end
 
   def block
-    if admin_user.block
-      redirect_to :back, alert: "Successfully blocked"
+    if user.block
+      redirect_to :back, notice: "Successfully blocked"
     else
-      redirect_to :back, alert: "Error occured. User was not blocked"
+      redirect_to :back, alert: "Error occurred. User was not blocked"
     end
   end
 
   def unblock
-    if admin_user.activate
-      redirect_to :back, alert: "Successfully unblocked"
+    if user.activate
+      redirect_to :back, notice: "Successfully unblocked"
     else
-      redirect_to :back, alert: "Error occured. User was not unblocked"
+      redirect_to :back, alert: "Error occurred. User was not unblocked"
     end
   end
 
-  def create
-    admin = params[:user].delete("admin")
+  def unlock
+    if user.unlock_access!
+      redirect_to :back, alert: "Successfully unlocked"
+    else
+      redirect_to :back, alert: "Error occurred. User was not unlocked"
+    end
+  end
 
+  def disable_two_factor
+    user.disable_two_factor!
+    redirect_to admin_user_path(user),
+      notice: 'Two-factor Authentication has been disabled for this user'
+  end
+
+  def create
     opts = {
       force_random_password: true,
-      password_expires_at: Time.now
+      password_expires_at: nil
     }
 
-    @admin_user = User.new(params[:user].merge(opts), as: :admin)
-    @admin_user.admin = (admin && admin.to_i > 0)
-    @admin_user.created_by_id = current_user.id
+    @user = User.new(user_params.merge(opts))
+    @user.created_by_id = current_user.id
+    @user.generate_password
+    @user.generate_reset_token
+    @user.skip_confirmation!
 
     respond_to do |format|
-      if @admin_user.save
-        format.html { redirect_to [:admin, @admin_user], notice: 'User was successfully created.' }
-        format.json { render json: @admin_user, status: :created, location: @admin_user }
+      if @user.save
+        format.html { redirect_to [:admin, @user], notice: 'User was successfully created.' }
+        format.json { render json: @user, status: :created, location: @user }
       else
-        format.html { render action: "new" }
-        format.json { render json: @admin_user.errors, status: :unprocessable_entity }
+        format.html { render "new" }
+        format.json { render json: @user.errors, status: :unprocessable_entity }
       end
     end
   end
 
   def update
-    admin = params[:user].delete("admin")
+    user_params_with_pass = user_params.dup
 
-    if params[:user][:password].blank?
-      params[:user].delete(:password)
-      params[:user].delete(:password_confirmation)
+    if params[:user][:password].present?
+      user_params_with_pass.merge!(
+        password: params[:user][:password],
+        password_confirmation: params[:user][:password_confirmation],
+      )
     end
 
-    admin_user.admin = (admin && admin.to_i > 0)
-
     respond_to do |format|
-      if admin_user.update_attributes(params[:user], as: :admin)
-        format.html { redirect_to [:admin, admin_user], notice: 'User was successfully updated.' }
+      user.skip_reconfirmation!
+      if user.update_attributes(user_params_with_pass)
+        format.html { redirect_to [:admin, user], notice: 'User was successfully updated.' }
         format.json { head :ok }
       else
         # restore username to keep form action url.
-        admin_user.username = params[:id]
-        format.html { render action: "edit" }
-        format.json { render json: admin_user.errors, status: :unprocessable_entity }
+        user.username = params[:id]
+        format.html { render "edit" }
+        format.json { render json: user.errors, status: :unprocessable_entity }
       end
     end
   end
 
   def destroy
-    if admin_user.personal_projects.count > 0
-      redirect_to admin_users_path, alert: "User is a project owner and can't be removed." and return
-    end
-    admin_user.destroy
+    DeleteUserService.new(current_user).execute(user)
 
     respond_to do |format|
       format.html { redirect_to admin_users_path }
@@ -110,9 +117,30 @@ class Admin::UsersController < Admin::ApplicationController
     end
   end
 
+  def remove_email
+    email = user.emails.find(params[:email_id])
+    email.destroy
+
+    user.update_secondary_emails!
+
+    respond_to do |format|
+      format.html { redirect_to :back, notice: "Successfully removed email." }
+      format.js { render nothing: true }
+    end
+  end
+
   protected
 
-  def admin_user
-    @admin_user ||= User.find_by_username!(params[:id])
+  def user
+    @user ||= User.find_by!(username: params[:id])
+  end
+
+  def user_params
+    params.require(:user).permit(
+      :email, :remember_me, :bio, :name, :username,
+      :skype, :linkedin, :twitter, :website_url, :color_scheme_id, :theme_id, :force_random_password,
+      :extern_uid, :provider, :password_expires_at, :avatar, :hide_no_ssh_key, :hide_no_password,
+      :projects_limit, :can_create_group, :admin, :key_id
+    )
   end
 end

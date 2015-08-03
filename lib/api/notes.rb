@@ -6,55 +6,6 @@ module API
     NOTEABLE_TYPES = [Issue, MergeRequest, Snippet]
 
     resource :projects do
-      # Get a list of project wall notes
-      #
-      # Parameters:
-      #   id (required) - The ID of a project
-      # Example Request:
-      #   GET /projects/:id/notes
-      get ":id/notes" do
-        @notes = user_project.notes.common
-
-        # Get recent notes if recent = true
-        @notes = @notes.order('id DESC') if params[:recent]
-
-        present paginate(@notes), with: Entities::Note
-      end
-
-      # Get a single project wall note
-      #
-      # Parameters:
-      #   id (required) - The ID of a project
-      #   note_id (required) - The ID of a note
-      # Example Request:
-      #   GET /projects/:id/notes/:note_id
-      get ":id/notes/:note_id" do
-        @note = user_project.notes.common.find(params[:note_id])
-        present @note, with: Entities::Note
-      end
-
-      # Create a new project wall note
-      #
-      # Parameters:
-      #   id (required) - The ID of a project
-      #   body (required) - The content of a note
-      # Example Request:
-      #   POST /projects/:id/notes
-      post ":id/notes" do
-        required_attributes! [:body]
-
-        @note = user_project.notes.new(note: params[:body])
-        @note.author = current_user
-
-        if @note.save
-          present @note, with: Entities::Note
-        else
-          # :note is exposed as :body, but :note is set on error
-          bad_request!(:note) if @note.errors[:note].any?
-          not_found!
-        end
-      end
-
       NOTEABLE_TYPES.each do |noteable_type|
         noteables_str = noteable_type.to_s.underscore.pluralize
         noteable_id_str = "#{noteable_type.to_s.underscore}_id"
@@ -99,17 +50,53 @@ module API
         post ":id/#{noteables_str}/:#{noteable_id_str}/notes" do
           required_attributes! [:body]
 
-          @noteable = user_project.send(:"#{noteables_str}").find(params[:"#{noteable_id_str}"])
-          @note = @noteable.notes.new(note: params[:body])
-          @note.author = current_user
-          @note.project = user_project
+          opts = {
+           note: params[:body],
+           noteable_type: noteables_str.classify,
+           noteable_id: params[noteable_id_str]
+          }
 
-          if @note.save
+          @note = ::Notes::CreateService.new(user_project, current_user, opts).execute
+
+          if @note.valid?
             present @note, with: Entities::Note
           else
-            not_found!
+            not_found!("Note #{@note.errors.messages}")
           end
         end
+
+        # Modify existing +noteable+ note
+        #
+        # Parameters:
+        #   id (required) - The ID of a project
+        #   noteable_id (required) - The ID of an issue or snippet
+        #   node_id (required) - The ID of a note
+        #   body (required) - New content of a note
+        # Example Request:
+        #   PUT /projects/:id/issues/:noteable_id/notes/:note_id
+        #   PUT /projects/:id/snippets/:noteable_id/notes/:node_id
+        put ":id/#{noteables_str}/:#{noteable_id_str}/notes/:note_id" do
+          required_attributes! [:body]
+
+          authorize! :admin_note, user_project.notes.find(params[:note_id])
+
+          opts = {
+            note: params[:body],
+            note_id: params[:note_id],
+            noteable_type: noteables_str.classify,
+            noteable_id: params[noteable_id_str]
+          }
+
+          @note = ::Notes::UpdateService.new(user_project, current_user,
+                                             opts).execute
+
+          if @note.valid?
+            present @note, with: Entities::Note
+          else
+            render_api_error!("Failed to save note #{note.errors.messages}", 400)
+          end
+        end
+
       end
     end
   end

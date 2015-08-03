@@ -4,7 +4,7 @@
 # If any command return non-zero status - stop deploy
 set -e
 
-echo 'Deploy: Stoping sidekiq..'
+echo 'Deploy: Stopping sidekiq..'
 cd /home/git/gitlab/ && sudo -u git -H bundle exec rake sidekiq:stop RAILS_ENV=production
 
 echo 'Deploy: Show deploy index page'
@@ -28,17 +28,18 @@ sudo -u git -H git pull origin master
 echo 'Deploy: Bundle and migrate'
 
 # change it to your needs
-sudo -u git -H bundle --without postgres
+sudo -u git -H bundle --without aws development test mysql --deployment
 
 sudo -u git -H bundle exec rake db:migrate RAILS_ENV=production
+sudo -u git -H bundle exec rake assets:clean RAILS_ENV=production
+sudo -u git -H bundle exec rake assets:precompile RAILS_ENV=production
+sudo -u git -H bundle exec rake cache:clear RAILS_ENV=production
 
 # return stashed changes (if necessary)
 # sudo -u git -H git stash pop
 
-
 echo 'Deploy: Starting GitLab server...'
 sudo service gitlab start
 
-sleep 10
 sudo -u git -H rm /home/git/gitlab/public/index.html
 echo 'Deploy: Done'

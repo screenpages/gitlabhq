@@ -1,4 +1,4 @@
-# Select2 ajax programatic helper
+# Select2 ajax programmatic helper
 # It allows you to select value from select2
 #
 # Params
@@ -12,14 +12,14 @@
 
 module Select2Helper
   def select2(value, options={})
-    raise "Must pass a hash containing 'from'" if not options.is_a?(Hash) or not options.has_key?(:from)
+    raise ArgumentError, 'options must be a Hash' unless options.kind_of?(Hash)
 
-    selector = options[:from]
+    selector = options.fetch(:from)
 
     if options[:multiple]
-      page.execute_script("$('#{selector}').select2('val', ['#{value}']);")
+      execute_script("$('#{selector}').select2('val', ['#{value}'], true);")
     else
-      page.execute_script("$('#{selector}').select2('val', '#{value}');")
+      execute_script("$('#{selector}').select2('val', '#{value}', true);")
     end
   end
 end

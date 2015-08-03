@@ -1,12 +1,14 @@
 module Gitlab
   # This module provide 2 methods
-  # to set specific ENV variabled for GitLab Shell
+  # to set specific ENV variables for GitLab Shell
   module ShellEnv
     extend self
 
     def set_env(user)
       # Set GL_ID env variable
-      ENV['GL_ID'] = "user-#{user.id}"
+      if user
+        ENV['GL_ID'] = "user-#{user.id}"
+      end
     end
 
     def reset_env

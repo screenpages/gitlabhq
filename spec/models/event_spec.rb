@@ -8,8 +8,8 @@
 #  title       :string(255)
 #  data        :text
 #  project_id  :integer
-#  created_at  :datetime         not null
-#  updated_at  :datetime         not null
+#  created_at  :datetime
+#  updated_at  :datetime
 #  action      :integer
 #  author_id   :integer
 #
@@ -18,16 +18,16 @@ require 'spec_helper'
 
 describe Event do
   describe "Associations" do
-    it { should belong_to(:project) }
-    it { should belong_to(:target) }
+    it { is_expected.to belong_to(:project) }
+    it { is_expected.to belong_to(:target) }
   end
 
   describe "Respond to" do
-    it { should respond_to(:author_name) }
-    it { should respond_to(:author_email) }
-    it { should respond_to(:issue_title) }
-    it { should respond_to(:merge_request_title) }
-    it { should respond_to(:commits) }
+    it { is_expected.to respond_to(:author_name) }
+    it { is_expected.to respond_to(:author_email) }
+    it { is_expected.to respond_to(:issue_title) }
+    it { is_expected.to respond_to(:merge_request_title) }
+    it { is_expected.to respond_to(:commits) }
   end
 
   describe "Push event" do
@@ -36,7 +36,7 @@ describe Event do
       @user = project.owner
 
       data = {
-        before: "0000000000000000000000000000000000000000",
+        before: Gitlab::Git::BLANK_SHA,
         after: "0220c11b9a3e6c69dc8fd35321254ca9a7b98f7e",
         ref: "refs/heads/master",
         user_id: @user.id,
@@ -58,33 +58,10 @@ describe Event do
       )
     end
 
-    it { @event.push?.should be_true }
-    it { @event.proper?.should be_true }
-    it { @event.new_branch?.should be_true }
-    it { @event.tag?.should be_false }
-    it { @event.branch_name.should == "master" }
-    it { @event.author.should == @user }
-  end
-
-  describe 'Team events' do
-    let(:user_project) { stub.as_null_object }
-    let(:observer) { UsersProjectObserver.instance }
-
-    before {
-      Event.should_receive :create
-      observer.stub(notification: stub.as_null_object)
-    }
-
-    describe "Joined project team" do
-      it "should create event" do
-        observer.after_create user_project
-      end
-    end
-
-    describe "Left project team" do
-      it "should create event" do
-        observer.after_destroy user_project
-      end
-    end
+    it { expect(@event.push?).to be_truthy }
+    it { expect(@event.proper?).to be_truthy }
+    it { expect(@event.tag?).to be_falsey }
+    it { expect(@event.branch_name).to eq("master") }
+    it { expect(@event.author).to eq(@user) }
   end
 end

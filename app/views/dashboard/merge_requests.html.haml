@@ -1,11 +1,11 @@
-%h3.page_title
+- page_title "Merge Requests"
+%h3.page-title
   Merge Requests
-  %small (authored by or assigned to you)
-  %small.pull-right #{@merge_requests.total_count} merge requests
 
+
+%p.light
+  List all merge requests from all projects you have access to.
 %hr
-.row
-  .span3
-    = render 'filter', entity: 'merge_request'
-  .span9
-    = render 'shared/merge_requests'
+.append-bottom-20
+  = render 'shared/issuable/filter', type: :merge_requests
+= render 'shared/merge_requests'

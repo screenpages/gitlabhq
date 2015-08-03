@@ -1,38 +1,44 @@
 require 'spec_helper'
 
-describe API::API do
+describe API::API, api: true  do
   include ApiHelpers
 
-  let(:user1)  { create(:user) }
-  let(:user2)  { create(:user) }
+  let(:user1) { create(:user, can_create_group: false) }
+  let(:user2) { create(:user) }
+  let(:user3) { create(:user) }
   let(:admin) { create(:admin) }
-  let!(:group1)  { create(:group, owner: user1) }
-  let!(:group2)  { create(:group, owner: user2) }
+  let!(:group1) { create(:group) }
+  let!(:group2) { create(:group) }
+
+  before do
+    group1.add_owner(user1)
+    group2.add_owner(user2)
+  end
 
   describe "GET /groups" do
     context "when unauthenticated" do
       it "should return authentication error" do
         get api("/groups")
-        response.status.should == 401
+        expect(response.status).to eq(401)
       end
     end
 
     context "when authenticated as user" do
       it "normal user: should return an array of groups of user1" do
         get api("/groups", user1)
-        response.status.should == 200
-        json_response.should be_an Array
-        json_response.length.should == 1
-        json_response.first['name'].should == group1.name
+        expect(response.status).to eq(200)
+        expect(json_response).to be_an Array
+        expect(json_response.length).to eq(1)
+        expect(json_response.first['name']).to eq(group1.name)
       end
     end
 
     context "when authenticated as  admin" do
       it "admin: should return an array of all groups" do
         get api("/groups", admin)
-        response.status.should == 200
-        json_response.should be_an Array
-        json_response.length.should == 2
+        expect(response.status).to eq(200)
+        expect(json_response).to be_an Array
+        expect(json_response.length).to eq(2)
       end
     end
   end
@@ -41,62 +47,119 @@ describe API::API do
     context "when authenticated as user" do
       it "should return one of user1's groups" do
         get api("/groups/#{group1.id}", user1)
-        response.status.should == 200
+        expect(response.status).to eq(200)
         json_response['name'] == group1.name
       end
 
       it "should not return a non existing group" do
         get api("/groups/1328", user1)
-        response.status.should == 404
+        expect(response.status).to eq(404)
       end
 
       it "should not return a group not attached to user1" do
         get api("/groups/#{group2.id}", user1)
-        response.status.should == 404
+        expect(response.status).to eq(403)
       end
     end
 
     context "when authenticated as admin" do
       it "should return any existing group" do
         get api("/groups/#{group2.id}", admin)
-        response.status.should == 200
+        expect(response.status).to eq(200)
         json_response['name'] == group2.name
       end
 
       it "should not return a non existing group" do
         get api("/groups/1328", admin)
-        response.status.should == 404
+        expect(response.status).to eq(404)
+      end
+    end
+
+    context 'when using group path in URL' do
+      it 'should return any existing group' do
+        get api("/groups/#{group1.path}", admin)
+        expect(response.status).to eq(200)
+        json_response['name'] == group2.name
+      end
+
+      it 'should not return a non existing group' do
+        get api('/groups/unknown', admin)
+        expect(response.status).to eq(404)
+      end
+
+      it 'should not return a group not attached to user1' do
+        get api("/groups/#{group2.path}", user1)
+        expect(response.status).to eq(403)
       end
     end
   end
 
   describe "POST /groups" do
-    context "when authenticated as user" do
+    context "when authenticated as user without group permissions" do
       it "should not create group" do
         post api("/groups", user1), attributes_for(:group)
-        response.status.should == 403
+        expect(response.status).to eq(403)
+      end
+    end
+
+    context "when authenticated as user with group permissions" do
+      it "should create group" do
+        post api("/groups", user3), attributes_for(:group)
+        expect(response.status).to eq(201)
+      end
+
+      it "should not create group, duplicate" do
+        post api("/groups", user3), { name: 'Duplicate Test', path: group2.path }
+        expect(response.status).to eq(400)
+        expect(response.message).to eq("Bad Request")
+      end
+
+      it "should return 400 bad request error if name not given" do
+        post api("/groups", user3), { path: group2.path }
+        expect(response.status).to eq(400)
+      end
+
+      it "should return 400 bad request error if path not given" do
+        post api("/groups", user3), { name: 'test' }
+        expect(response.status).to eq(400)
+      end
+    end
+  end
+
+  describe "DELETE /groups/:id" do
+    context "when authenticated as user" do
+      it "should remove group" do
+        delete api("/groups/#{group1.id}", user1)
+        expect(response.status).to eq(200)
+      end
+
+      it "should not remove a group if not an owner" do
+        user4 = create(:user)
+        group1.add_user(user4, Gitlab::Access::MASTER)
+        delete api("/groups/#{group1.id}", user3)
+        expect(response.status).to eq(403)
+      end
+
+      it "should not remove a non existing group" do
+        delete api("/groups/1328", user1)
+        expect(response.status).to eq(404)
+      end
+
+      it "should not remove a group not attached to user1" do
+        delete api("/groups/#{group2.id}", user1)
+        expect(response.status).to eq(403)
       end
     end
 
     context "when authenticated as admin" do
-      it "should create group" do
-        post api("/groups", admin), attributes_for(:group)
-        response.status.should == 201
+      it "should remove any existing group" do
+        delete api("/groups/#{group2.id}", admin)
+        expect(response.status).to eq(200)
       end
 
-      it "should not create group, duplicate" do
-        post api("/groups", admin), {name: "Duplicate Test", path: group2.path}
-        response.status.should == 404
-      end
-
-      it "should return 400 bad request error if name not given" do
-        post api("/groups", admin), { path: group2.path }
-        response.status.should == 400
-      end
-
-      it "should return 400 bad request error if path not given" do
-        post api("/groups", admin), { name: 'test' }
-        response.status.should == 400
+      it "should not remove a non existing group" do
+        delete api("/groups/1328", admin)
+        expect(response.status).to eq(404)
       end
     end
   end
@@ -104,22 +167,22 @@ describe API::API do
   describe "POST /groups/:id/projects/:project_id" do
     let(:project) { create(:project) }
     before(:each) do
-       project.stub!(:transfer).and_return(true)
-       Project.stub(:find).and_return(project)
+      allow_any_instance_of(Projects::TransferService).
+        to receive(:execute).and_return(true)
+      allow(Project).to receive(:find).and_return(project)
     end
-
 
     context "when authenticated as user" do
       it "should not transfer project to group" do
         post api("/groups/#{group1.id}/projects/#{project.id}", user2)
-        response.status.should == 403
+        expect(response.status).to eq(403)
       end
     end
 
     context "when authenticated as admin" do
       it "should transfer project to group" do
-        project.should_receive(:transfer)
         post api("/groups/#{group1.id}/projects/#{project.id}", admin)
+        expect(response.status).to eq(201)
       end
     end
   end

@@ -1,4 +1,7 @@
 class OmniauthCallbacksController < Devise::OmniauthCallbacksController
+
+  protect_from_forgery except: [:kerberos, :saml]
+
   Gitlab.config.omniauth.providers.each do |provider|
     define_method provider['name'] do
       handle_omniauth
@@ -15,36 +18,77 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
     error.to_s.humanize if error
   end
 
+  # We only find ourselves here
+  # if the authentication to LDAP was successful.
   def ldap
-    # We only find ourselves here if the authentication to LDAP was successful.
-    @user = User.find_for_ldap_auth(request.env["omniauth.auth"], current_user)
-    if @user.persisted?
-      @user.remember_me = true
+    @user = Gitlab::LDAP::User.new(oauth)
+    @user.save if @user.changed? # will also save new users
+    gl_user = @user.gl_user
+    gl_user.remember_me = params[:remember_me] if @user.persisted?
+
+    # Do additional LDAP checks for the user filter and EE features
+    if @user.allowed?
+      log_audit_event(gl_user, with: :ldap)
+      sign_in_and_redirect(gl_user)
+    else
+      flash[:alert] = "Access denied for your LDAP account."
+      redirect_to new_user_session_path
     end
-    sign_in_and_redirect @user
+  end
+
+  def omniauth_error
+    @provider = params[:provider]
+    @error = params[:error]
+    render 'errors/omniauth_error', layout: "errors", status: 422
   end
 
   private
 
   def handle_omniauth
-    oauth = request.env['omniauth.auth']
-    provider, uid = oauth['provider'], oauth['uid']
-
     if current_user
-      # Change a logged-in user's authentication method:
-      current_user.extern_uid = uid
-      current_user.provider = provider
-      current_user.save
-      redirect_to profile_path
+      # Add new authentication method
+      current_user.identities.find_or_create_by(extern_uid: oauth['uid'], provider: oauth['provider'])
+      log_audit_event(current_user, with: oauth['provider'])
+      redirect_to profile_account_path, notice: 'Authentication method updated'
     else
-      @user = User.find_or_new_for_omniauth(oauth)
+      @user = Gitlab::OAuth::User.new(oauth)
+      @user.save
 
-      if @user
-        sign_in_and_redirect @user
+      # Only allow properly saved users to login.
+      if @user.persisted? && @user.valid?
+        log_audit_event(@user.gl_user, with: oauth['provider'])
+        sign_in_and_redirect(@user.gl_user)
       else
-        flash[:notice] = "There's no such user!"
-        redirect_to new_user_session_path
+        error_message =
+          if @user.gl_user.errors.any?
+            @user.gl_user.errors.map do |attribute, message|
+              "#{attribute} #{message}"
+            end.join(", ")
+          else
+            ''
+          end
+
+        redirect_to omniauth_error_path(oauth['provider'], error: error_message) and return
       end
     end
+  rescue Gitlab::OAuth::SignupDisabledError => e
+    message = "Signing in using your #{oauth['provider']} account without a pre-existing GitLab account is not allowed."
+
+    if current_application_settings.signup_enabled?
+      message << " Create a GitLab account first, and then connect it to your #{oauth['provider']} account."
+    end
+
+    flash[:notice] = message
+    
+    redirect_to new_user_session_path
+  end
+
+  def oauth
+    @oauth ||= request.env['omniauth.auth']
+  end
+
+  def log_audit_event(user, options = {})
+    AuditEventService.new(user, user, options).
+      for_authentication.security_event
   end
 end

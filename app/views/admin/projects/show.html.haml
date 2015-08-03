@@ -1,18 +1,20 @@
-%h3.page_title
+- page_title @project.name_with_namespace, "Projects"
+%h3.page-title
   Project: #{@project.name_with_namespace}
   = link_to edit_project_path(@project), class: "btn pull-right" do
-    %i.icon-edit
+    %i.fa.fa-pencil-square-o
     Edit
 %hr
 .row
-  .span6
-    .ui-box
-      %h5.title
+  .col-md-6
+    .panel.panel-default
+      .panel-heading
         Project info:
       %ul.well-list
         %li
           %span.light Name:
-          %strong= @project.name
+          %strong
+            = link_to @project.name, project_path(@project)
         %li
           %span.light Namespace:
           %strong
@@ -24,7 +26,7 @@
           %span.light Owned by:
           %strong
             - if @project.owner
-              = link_to @project.owner_name, admin_user_path(@project.owner)
+              = link_to @project.owner_name, [:admin, @project.owner]
             - else
               (deleted)
 
@@ -34,23 +36,28 @@
             = @project.creator.try(:name) || '(deleted)'
 
         %li
-          %span.light Created at:
+          %span.light Created on:
           %strong
             = @project.created_at.stamp("March 1, 1999")
 
         %li
           %span.light http:
           %strong
-            = link_to @project.http_url_to_repo
+            = link_to @project.http_url_to_repo, project_path(@project)
         %li
           %span.light ssh:
           %strong
-            = link_to @project.ssh_url_to_repo
+            = link_to @project.ssh_url_to_repo, project_path(@project)
         - if @project.repository.exists?
           %li
             %span.light fs:
             %strong
               = @repository.path_to_repo
+
+          %li
+            %span.light Size
+            %strong
+              = repository_size(@project)
 
           %li
             %span.light last commit:
@@ -62,29 +69,74 @@
             %strong.cred
               does not exist
 
+        - if @project.archived?
+          %li
+            %span.light archived:
+            %strong repository is read-only
+
         %li
           %span.light access:
           %strong
-            - if @project.public
-              %span.cblue
-                %i.icon-share
-                Public
-            - else
-              %span.cgreen
-                %i.icon-lock
-                Private
-  .span6
-    .ui-box
-      %h5.title
-        Team
+            %span{ class: visibility_level_color(@project.visibility_level) }
+              = visibility_level_icon(@project.visibility_level)
+              = visibility_level_label(@project.visibility_level)
+
+    .panel.panel-default
+      .panel-heading
+        Transfer project
+      .panel-body
+        = form_for @project, url: transfer_admin_namespace_project_path(@project.namespace, @project), method: :put, html: { class: 'form-horizontal' } do |f|
+          .form-group
+            = f.label :new_namespace_id, "Namespace", class: 'control-label'
+            .col-sm-10
+              = namespace_select_tag :new_namespace_id, selected: params[:namespace_id], class: 'input-large'
+
+          .form-group
+            .col-sm-offset-2.col-sm-10
+              = f.submit 'Transfer', class: 'btn btn-primary'
+
+  .col-md-6
+    - if @group
+      .panel.panel-default
+        .panel-heading
+          %strong #{@group.name}
+          group members (#{@group.group_members.count})
+          .pull-right
+            = link_to admin_group_path(@group), class: 'btn btn-xs' do
+              %i.fa.fa-pencil-square-o
+        %ul.well-list
+          - @group_members.each do |member|
+            = render 'groups/group_members/group_member', member: member, show_controls: false
+        .panel-footer
+          = paginate @group_members, param_name: 'group_members_page', theme: 'gitlab'
+
+    .panel.panel-default
+      .panel-heading
+        Project members
         %small
           (#{@project.users.count})
-        = link_to project_team_index_path(@project), class: "btn btn-tiny" do
-          %i.icon-edit
-          Edit Team
-      %ul.well-list.team_members
-        - @project.users.each do |tm|
-          %li
-            %strong
-              = link_to tm.name, admin_user_path(tm)
-            %span.pull-right.light= @project.project_access_human(tm)
+        .pull-right
+          = link_to namespace_project_project_members_path(@project.namespace, @project), class: "btn btn-xs" do
+            %i.fa.fa-pencil-square-o
+            Manage Access
+      %ul.well-list.project_members
+        - @project_members.each do |project_member|
+          - user = project_member.user
+          %li.project_member
+            .list-item-name
+              - if user
+                %strong
+                  = link_to user.name, admin_user_path(user)
+              - else
+                %strong
+                  = project_member.invite_email
+                (invited)
+            .pull-right
+              - if project_member.owner?
+                %span.light Owner
+              - else
+                %span.light= project_member.human_access
+                = link_to namespace_project_project_member_path(@project.namespace, @project, project_member), data: { confirm: remove_from_project_team_message(@project, project_member)}, method: :delete, remote: true, class: "btn btn-sm btn-remove" do
+                  %i.fa.fa-times
+      .panel-footer
+        = paginate @project_members, param_name: 'project_members_page', theme: 'gitlab'

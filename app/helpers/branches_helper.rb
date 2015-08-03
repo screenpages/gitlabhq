@@ -4,6 +4,8 @@ module BranchesHelper
       false
     elsif branch_name == project.repository.root_ref
       false
+    elsif !current_user.is_admin? #CUSTOM - only admins can remove branches
+      false
     else
       can?(current_user, :push_code, project)
     end

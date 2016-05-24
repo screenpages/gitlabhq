@@ -27,21 +27,27 @@ module Projects
     def transfer(project, new_namespace)
       Project.transaction do
         old_path = project.path_with_namespace
+        old_namespace = project.namespace
         new_path = File.join(new_namespace.try(:path) || '', project.path)
 
         if Project.where(path: project.path, namespace_id: new_namespace.try(:id)).present?
           raise TransferError.new("Project with same path in target namespace already exists")
         end
 
-        # Remove old satellite
-        project.satellite.destroy
+        if project.has_container_registry_tags?
+          # we currently doesn't support renaming repository if it contains tags in container registry
+          raise TransferError.new('Project cannot be transferred, because tags are present in its container registry')
+        end
 
-        # Apply new namespace id
+        project.expire_caches_before_rename(old_path)
+
+        # Apply new namespace id and visibility level
         project.namespace = new_namespace
+        project.visibility_level = new_namespace.visibility_level unless project.visibility_level_allowed_by_group?
         project.save!
 
         # Notifications
-        project.send_move_instructions
+        project.send_move_instructions(old_path)
 
         # Move main repository
         unless gitlab_shell.mv_repository(old_path, new_path)
@@ -51,12 +57,15 @@ module Projects
         # Move wiki repo also if present
         gitlab_shell.mv_repository("#{old_path}.wiki", "#{new_path}.wiki")
 
-        # Create a new satellite (reload project from DB)
-        Project.find(project.id).ensure_satellite_exists
-
         # clear project cached events
         project.reset_events_cache
 
+        # Move uploads
+        Gitlab::UploadsTransfer.new.move_project(project.path, old_namespace.path, new_namespace.path)
+
+        project.old_path_with_namespace = old_path
+
+        SystemHooksService.new.execute_hooks_for(project, :transfer)
         true
       end
     end

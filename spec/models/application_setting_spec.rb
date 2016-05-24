@@ -1,34 +1,48 @@
-# == Schema Information
-#
-# Table name: application_settings
-#
-#  id                           :integer          not null, primary key
-#  default_projects_limit       :integer
-#  signup_enabled               :boolean
-#  signin_enabled               :boolean
-#  gravatar_enabled             :boolean
-#  sign_in_text                 :text
-#  created_at                   :datetime
-#  updated_at                   :datetime
-#  home_page_url                :string(255)
-#  default_branch_protection    :integer          default(2)
-#  twitter_sharing_enabled      :boolean          default(TRUE)
-#  restricted_visibility_levels :text
-#  max_attachment_size          :integer          default(10), not null
-#  session_expire_delay       :integer          default(10080), not null
-#  default_project_visibility   :integer
-#  default_snippet_visibility   :integer
-#  restricted_signup_domains    :text
-#
-
 require 'spec_helper'
 
 describe ApplicationSetting, models: true do
-  it { expect(ApplicationSetting.create_from_defaults).to be_valid }
+  let(:setting) { ApplicationSetting.create_from_defaults }
+
+  it { expect(setting).to be_valid }
+
+  describe 'validations' do
+    let(:http)  { 'http://example.com' }
+    let(:https) { 'https://example.com' }
+    let(:ftp)   { 'ftp://example.com' }
+
+    it { is_expected.to allow_value(nil).for(:home_page_url) }
+    it { is_expected.to allow_value(http).for(:home_page_url) }
+    it { is_expected.to allow_value(https).for(:home_page_url) }
+    it { is_expected.not_to allow_value(ftp).for(:home_page_url) }
+
+    it { is_expected.to allow_value(nil).for(:after_sign_out_path) }
+    it { is_expected.to allow_value(http).for(:after_sign_out_path) }
+    it { is_expected.to allow_value(https).for(:after_sign_out_path) }
+    it { is_expected.not_to allow_value(ftp).for(:after_sign_out_path) }
+
+    describe 'disabled_oauth_sign_in_sources validations' do
+      before do
+        allow(Devise).to receive(:omniauth_providers).and_return([:github])
+      end
+
+      it { is_expected.to allow_value(['github']).for(:disabled_oauth_sign_in_sources) }
+      it { is_expected.not_to allow_value(['test']).for(:disabled_oauth_sign_in_sources) }
+    end
+
+    it { is_expected.to validate_presence_of(:max_attachment_size) }
+
+    it do
+      is_expected.to validate_numericality_of(:max_attachment_size)
+        .only_integer
+        .is_greater_than(0)
+    end
+
+    it_behaves_like 'an object with email-formated attributes', :admin_notification_email do
+      subject { setting }
+    end
+  end
 
   context 'restricted signup domains' do
-    let(:setting) { ApplicationSetting.create_from_defaults }
-
     it 'set single domain' do
       setting.restricted_signup_domains_raw = 'example.com'
       expect(setting.restricted_signup_domains).to eq(['example.com'])

@@ -12,7 +12,6 @@ module Gitlab
 
       @timestamps = {}
       date_from = 1.year.ago
-      date_to = Date.today
 
       events = Event.reorder(nil).contributions.where(author_id: user.id).
         where("created_at > ?", date_from).where(project_id: projects).
@@ -46,11 +45,11 @@ module Gitlab
     end
 
     def starting_year
-      (Time.now - 1.year).strftime("%Y")
+      1.year.ago.year
     end
 
     def starting_month
-      Date.today.strftime("%m").to_i
+      Date.today.month
     end
   end
 end

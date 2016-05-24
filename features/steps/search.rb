@@ -18,6 +18,11 @@ class Spinach::Features::Search < Spinach::FeatureSteps
     click_button "Search"
   end
 
+  step 'I search for "rspec" on project page' do
+    fill_in "search", with: "rspec"
+    click_button "Go"
+  end
+
   step 'I search for "Wiki content"' do
     fill_in "dashboard_search", with: "content"
     click_button "Search"
@@ -30,6 +35,7 @@ class Spinach::Features::Search < Spinach::FeatureSteps
   end
 
   step 'I click project "Shop" link' do
+    click_button 'Project'
     page.within '.project-filter' do
       click_link project.name_with_namespace
     end
@@ -38,6 +44,12 @@ class Spinach::Features::Search < Spinach::FeatureSteps
   step 'I click "Merge requests" link' do
     page.within '.search-filter' do
       click_link 'Merge requests'
+    end
+  end
+
+  step 'I click "Milestones" link' do
+    page.within '.search-filter' do
+      click_link 'Milestones'
     end
   end
 
@@ -72,6 +84,11 @@ class Spinach::Features::Search < Spinach::FeatureSteps
     create(:merge_request, :simple, title: "Bar", source_project: project, target_project: project)
   end
 
+  step 'project has milestones' do
+    create(:milestone, title: "Foo", project: project)
+    create(:milestone, title: "Bar", project: project)
+  end
+
   step 'I should see "Foo" link in the search results' do
     page.within('.results') do
       find(:css, '.search-results').should have_link 'Foo'
@@ -84,12 +101,16 @@ class Spinach::Features::Search < Spinach::FeatureSteps
 
   step 'I should see "test_wiki" link in the search results' do
     page.within('.results') do
-      find(:css, '.search-results').should have_link 'test_wiki.md'
+      expect(find(:css, '.search-results')).to have_link 'test_wiki'
     end
   end
 
   step 'project has Wiki content' do
     @wiki = ::ProjectWiki.new(project, current_user)
     @wiki.create_page("test_wiki", "Some Wiki content", :markdown, "first commit")
+  end
+
+  step 'project "Shop" is public' do
+    project.update_attributes(visibility_level: Project::PUBLIC)
   end
 end

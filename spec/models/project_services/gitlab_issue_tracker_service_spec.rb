@@ -20,12 +20,26 @@
 
 require 'spec_helper'
 
-describe GitlabIssueTrackerService do
+describe GitlabIssueTrackerService, models: true do
   describe "Associations" do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
   end
 
+  describe 'Validations' do
+    context 'when service is active' do
+      subject { described_class.new(project: create(:project), active: true) }
+
+      it { is_expected.to validate_presence_of(:issues_url) }
+      it_behaves_like 'issue tracker service URL attribute', :issues_url
+    end
+
+    context 'when service is inactive' do
+      subject { described_class.new(project: create(:project), active: false) }
+
+      it { is_expected.not_to validate_presence_of(:issues_url) }
+    end
+  end
 
   describe 'project and issue urls' do
     let(:project) { create(:project) }

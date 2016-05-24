@@ -17,6 +17,10 @@ module StubConfiguration
     allow(Gitlab.config.gravatar).to receive_messages(messages)
   end
 
+  def stub_incoming_email_setting(messages)
+    allow(Gitlab.config.incoming_email).to receive_messages(messages)
+  end
+
   private
 
   # Modifies stubbed messages to also stub possible predicate versions

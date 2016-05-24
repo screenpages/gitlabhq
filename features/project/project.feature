@@ -31,6 +31,12 @@ Feature: Project
     And I visit project "Shop" page
     Then I should see project "Shop" README
 
+  Scenario: I should see last commit with CI
+    Given project "Shop" has CI enabled
+    Given project "Shop" has CI build
+    And I visit project "Shop" page
+    And I should see last commit with CI status
+
   @javascript
   Scenario: I should see project activity
     When I visit project "Shop" activity page
@@ -74,3 +80,15 @@ Feature: Project
     Given I disable snippets in project
     When I visit project "Shop" page
     Then I should not see "Snippets" button
+
+  @javascript
+  Scenario: I edit Project Notifications
+    Given I click notifications drop down button
+    When I choose Mention setting
+    Then I should see Notification saved message
+
+  Scenario: I should see command line instructions
+    Given I own an empty project
+    And I visit my empty project page
+    And I create bare repo
+    Then I should see command line instructions

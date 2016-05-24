@@ -15,31 +15,26 @@ describe 'ZenMode', ->
     # Set this manually because we can't actually scroll the window
     @zen.scroll_position = 456
 
-  # Ohmmmmmmm
-  enterZen = ->
-    $('.zen-toggle-comment').prop('checked', true).trigger('change')
-
-  # Wh- what was that?!
-  exitZen = ->
-    $('.zen-toggle-comment').prop('checked', false).trigger('change')
-
   describe 'on enter', ->
     it 'pauses Mousetrap', ->
       spyOn(Mousetrap, 'pause')
       enterZen()
       expect(Mousetrap.pause).toHaveBeenCalled()
 
-  describe 'in use', ->
-    beforeEach ->
+    it 'removes textarea styling', ->
+      $('textarea').attr('style', 'height: 400px')
       enterZen()
+      expect('textarea').not.toHaveAttr('style')
+
+  describe 'in use', ->
+    beforeEach -> enterZen()
 
     it 'exits on Escape', ->
-      $(document).trigger(jQuery.Event('keydown', {keyCode: 27}))
-      expect($('.zen-toggle-comment').prop('checked')).toBe(false)
+      escapeKeydown()
+      expect($('.zen-backdrop')).not.toHaveClass('fullscreen')
 
   describe 'on exit', ->
-    beforeEach ->
-      enterZen()
+    beforeEach -> enterZen()
 
     it 'unpauses Mousetrap', ->
       spyOn(Mousetrap, 'unpause')
@@ -47,6 +42,10 @@ describe 'ZenMode', ->
       expect(Mousetrap.unpause).toHaveBeenCalled()
 
     it 'restores the scroll position', ->
-      spyOn(@zen, 'restoreScroll')
+      spyOn(@zen, 'scrollTo')
       exitZen()
-      expect(@zen.restoreScroll).toHaveBeenCalledWith(456)
+      expect(@zen.scrollTo).toHaveBeenCalled()
+
+enterZen      = -> $('a.js-zen-enter').click() # Ohmmmmmmm
+exitZen       = -> $('a.js-zen-leave').click()
+escapeKeydown = -> $('textarea').trigger($.Event('keydown', {keyCode: 27}))

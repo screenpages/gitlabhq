@@ -59,7 +59,7 @@ describe ApplicationHelper do
 
       avatar_url = "http://localhost/uploads/project/avatar/#{project.id}/banana_sample.gif"
       expect(helper.project_icon("#{project.namespace.to_param}/#{project.to_param}").to_s).
-        to eq "<img alt=\"Banana sample\" src=\"#{avatar_url}\" />"
+        to eq "<img src=\"#{avatar_url}\" alt=\"Banana sample\" />"
     end
 
     it 'should give uploaded icon when present' do
@@ -95,9 +95,18 @@ describe ApplicationHelper do
     end
 
     it 'should call gravatar_icon when no User exists with the given email' do
-      expect(helper).to receive(:gravatar_icon).with('foo@example.com', 20)
+      expect(helper).to receive(:gravatar_icon).with('foo@example.com', 20, 2)
 
-      helper.avatar_icon('foo@example.com', 20)
+      helper.avatar_icon('foo@example.com', 20, 2)
+    end
+
+    describe 'using a User' do
+      it 'should return an URL for the avatar' do
+        user = create(:user, avatar: File.open(avatar_file_path))
+
+        expect(helper.avatar_icon(user).to_s).
+          to match("/uploads/user/avatar/#{user.id}/banana_sample.gif")
+      end
     end
   end
 
@@ -141,15 +150,19 @@ describe ApplicationHelper do
         stub_gravatar_setting(plain_url: 'http://example.local/?s=%{size}&hash=%{hash}')
 
         expect(gravatar_icon(user_email, 20)).
-          to eq('http://example.local/?s=20&hash=b58c6f14d292556214bd64909bcdb118')
+          to eq('http://example.local/?s=40&hash=b58c6f14d292556214bd64909bcdb118')
       end
 
       it 'accepts a custom size argument' do
-        expect(helper.gravatar_icon(user_email, 64)).to include '?s=64'
+        expect(helper.gravatar_icon(user_email, 64)).to include '?s=128'
       end
 
-      it 'defaults size to 40 when given an invalid size' do
-        expect(helper.gravatar_icon(user_email, nil)).to include '?s=40'
+      it 'defaults size to 40@2x when given an invalid size' do
+        expect(helper.gravatar_icon(user_email, nil)).to include '?s=80'
+      end
+
+      it 'accepts a scaling factor' do
+        expect(helper.gravatar_icon(user_email, 40, 3)).to include '?s=120'
       end
 
       it 'ignores case and surrounding whitespace' do
@@ -227,7 +240,7 @@ describe ApplicationHelper do
   describe 'time_ago_with_tooltip' do
     def element(*arguments)
       Time.zone = 'UTC'
-      time = Time.zone.parse('2015-07-02 08:00')
+      time = Time.zone.parse('2015-07-02 08:23')
       element = helper.time_ago_with_tooltip(time, *arguments)
 
       Nokogiri::HTML::DocumentFragment.parse(element).first_element_child
@@ -238,23 +251,24 @@ describe ApplicationHelper do
     end
 
     it 'includes the date string' do
-      expect(element.text).to eq '2015-07-02 08:00:00 UTC'
+      expect(element.text).to eq '2015-07-02 08:23:00 UTC'
     end
 
     it 'has a datetime attribute' do
-      expect(element.attr('datetime')).to eq '2015-07-02T08:00:00Z'
+      expect(element.attr('datetime')).to eq '2015-07-02T08:23:00Z'
     end
 
     it 'has a formatted title attribute' do
-      expect(element.attr('title')).to eq 'Jul 02, 2015 8:00am'
+      expect(element.attr('title')).to eq 'Jul 2, 2015 8:23am'
     end
 
     it 'includes a default js-timeago class' do
-      expect(element.attr('class')).to eq 'time_ago js-timeago'
+      expect(element.attr('class')).to eq 'time_ago js-timeago js-timeago-pending'
     end
 
     it 'accepts a custom html_class' do
-      expect(element(html_class: 'custom_class').attr('class')).to eq 'custom_class js-timeago'
+      expect(element(html_class: 'custom_class').attr('class')).
+        to eq 'custom_class js-timeago js-timeago-pending'
     end
 
     it 'accepts a custom tooltip placement' do
@@ -265,16 +279,24 @@ describe ApplicationHelper do
       el = element.next_element
 
       expect(el.name).to eq 'script'
-      expect(el.text).to include "$('.js-timeago').timeago()"
+      expect(el.text).to include "$('.js-timeago-pending').removeClass('js-timeago-pending').timeago()"
     end
 
     it 'allows the script tag to be excluded' do
       expect(element(skip_js: true)).not_to include 'script'
     end
+
+    it 'converts to Time' do
+      expect { helper.time_ago_with_tooltip(Date.today) }.not_to raise_error
+    end
   end
 
   describe 'render_markup' do
     let(:content) { 'Noël' }
+    let(:user) { create(:user) }
+    before do
+      allow(helper).to receive(:current_user).and_return(user)
+    end
 
     it 'should preserve encoding' do
       expect(content.encoding.name).to eq('UTF-8')

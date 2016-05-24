@@ -3,12 +3,17 @@ class Projects::BranchesController < Projects::ApplicationController
   # Authorize
   before_action :require_non_empty_project
   before_action :authorize_download_code!
-  before_action :authorize_push_code!, only: [:create, :destroy]
+  before_action :authorize_push_code!, only: [:new, :create, :destroy]
 
   def index
     @sort = params[:sort] || 'name'
     @branches = @repository.branches_sorted_by(@sort)
-    @branches = Kaminari.paginate_array(@branches).page(params[:page]).per(PER_PAGE)
+    @branches = Kaminari.paginate_array(@branches).page(params[:page])
+
+    @max_commits = @branches.reduce(0) do |memo, branch|
+      diverging_commit_counts = repository.diverging_commit_counts(branch)
+      [memo, diverging_commit_counts[:behind], diverging_commit_counts[:ahead]].max
+    end
   end
 
   def recent
@@ -17,9 +22,15 @@ class Projects::BranchesController < Projects::ApplicationController
 
   def create
     branch_name = sanitize(strip_tags(params[:branch_name]))
-    ref = sanitize(strip_tags(params[:ref]))
+    branch_name = Addressable::URI.unescape(branch_name)
+
     result = CreateBranchService.new(project, current_user).
         execute(branch_name, ref)
+
+    if params[:issue_iid]
+      issue = @project.issues.find_by(iid: params[:issue_iid])
+      SystemNoteService.new_issue_branch(issue, @project, current_user, branch_name) if issue
+    end
 
     if result[:status] == :success
       @branch = result[:branch]
@@ -32,15 +43,25 @@ class Projects::BranchesController < Projects::ApplicationController
   end
 
   def destroy
-    status = DeleteBranchService.new(project, current_user).execute(params[:id])
-    @branch_name = params[:id]
-
+    @branch_name = Addressable::URI.unescape(params[:id])
+    status = DeleteBranchService.new(project, current_user).execute(@branch_name)
     respond_to do |format|
       format.html do
         redirect_to namespace_project_branches_path(@project.namespace,
-                                                    @project)
+                                                    @project), status: 303
       end
       format.js { render status: status[:return_code] }
+    end
+  end
+
+  private
+
+  def ref
+    if params[:ref]
+      ref_escaped = sanitize(strip_tags(params[:ref]))
+      Addressable::URI.unescape(ref_escaped)
+    else
+      @project.default_branch
     end
   end
 end

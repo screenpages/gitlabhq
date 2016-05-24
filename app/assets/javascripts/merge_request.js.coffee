@@ -19,6 +19,7 @@ class @MergeRequest
 
     # Prevent duplicate event bindings
     @disableTaskList()
+    @initMRBtnListeners()
 
     if $("a.btn-close").length
       @initTaskList()
@@ -40,12 +41,34 @@ class @MergeRequest
     this.$('.all-commits').removeClass 'hide'
 
   initTaskList: ->
-    $('.merge-request-details .js-task-list-container').taskList('enable')
-    $(document).on 'tasklist:changed', '.merge-request-details .js-task-list-container', @updateTaskList
+    $('.detail-page-description .js-task-list-container').taskList('enable')
+    $(document).on 'tasklist:changed', '.detail-page-description .js-task-list-container', @updateTaskList
+
+  initMRBtnListeners: ->
+    _this = @
+    $('a.btn-close, a.btn-reopen').on 'click', (e) ->
+      $this = $(this)
+      shouldSubmit = $this.hasClass('btn-comment')
+      if shouldSubmit && $this.data('submitted')
+        return
+      if shouldSubmit
+        if $this.hasClass('btn-comment-and-close') || $this.hasClass('btn-comment-and-reopen')
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          _this.submitNoteForm($this.closest('form'),$this)
+
+
+  submitNoteForm: (form, $button) =>
+    noteText = form.find("textarea.js-note-text").val()
+    if noteText.trim().length > 0
+      form.submit()
+      $button.data('submitted',true)
+      $button.trigger('click')
+
 
   disableTaskList: ->
-    $('.merge-request-details .js-task-list-container').taskList('disable')
-    $(document).off 'tasklist:changed', '.merge-request-details .js-task-list-container'
+    $('.detail-page-description .js-task-list-container').taskList('disable')
+    $(document).off 'tasklist:changed', '.detail-page-description .js-task-list-container'
 
   # TODO (rspeicher): Make the merge request description inline-editable like a
   # note so that we can re-use its form here

@@ -1,6 +1,6 @@
 i.icon-gitorious {
   display: inline-block;
-  background-position: 0px 0px;
+  background-position: 0 0;
   background-size: contain;
   background-repeat: no-repeat;
 }
@@ -15,4 +15,25 @@ i.icon-gitorious-big {
   background-image: image-url('gitorious-logo-black.png');
   width: 18px;
   height: 18px;
+}
+
+.import-jobs-from-col,
+.import-jobs-to-col {
+  width: 40%;
+}
+
+.import-jobs-status-col {
+  width: 20%;
+}
+
+.btn-import {
+  .loading-icon {
+    display: none;
+  }
+
+  &.is-loading {
+    .loading-icon {
+      display: inline-block;
+    }
+  }
 }

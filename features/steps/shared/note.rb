@@ -2,7 +2,7 @@ module SharedNote
   include Spinach::DSL
 
   step 'I delete a comment' do
-    page.within('.notes') do
+    page.within('.main-notes-list') do
       find('.note').hover
       find(".js-note-delete").click
     end
@@ -17,7 +17,7 @@ module SharedNote
   step 'I leave a comment like "XML attached"' do
     page.within(".js-main-target-form") do
       fill_in "note[note]", with: "XML attached"
-      click_button "Add Comment"
+      click_button "Comment"
     end
   end
 
@@ -30,7 +30,7 @@ module SharedNote
 
   step 'I submit the comment' do
     page.within(".js-main-target-form") do
-      click_button "Add Comment"
+      click_button "Comment"
     end
   end
 
@@ -106,12 +106,16 @@ module SharedNote
     end
   end
 
+  step 'I should see no notes at all' do
+    expect(page).to_not have_css('.note')
+  end
+
   # Markdown
 
   step 'I leave a comment with a header containing "Comment with a header"' do
     page.within(".js-main-target-form") do
       fill_in "note[note]", with: "# Comment with a header"
-      click_button "Add Comment"
+      click_button "Comment"
       sleep 0.05
     end
   end
@@ -124,7 +128,7 @@ module SharedNote
   end
 
   step 'I edit the last comment with a +1' do
-    page.within(".notes") do
+    page.within(".main-notes-list") do
       find(".note").hover
       find('.js-note-edit').click
     end

@@ -1,61 +1,56 @@
 module Gitlab
   # Extract possible GFM references from an arbitrary String for further processing.
-  class ReferenceExtractor
-    attr_accessor :project, :current_user
+  class ReferenceExtractor < Banzai::ReferenceExtractor
+    REFERABLES = %i(user issue label milestone merge_request snippet commit commit_range)
+    attr_accessor :project, :current_user, :author
 
-    def initialize(project, current_user = nil)
+    def initialize(project, current_user = nil, author = nil)
       @project = project
       @current_user = current_user
+      @author = author
+
+      @references = {}
+
+      super()
     end
 
-    def analyze(text)
-      references.clear
-      @text = markdown.render(text.dup)
+    def analyze(text, context = {})
+      super(text, context.merge(project: project))
     end
 
-    %i(user label issue merge_request snippet commit commit_range).each do |type|
+    REFERABLES.each do |type|
       define_method("#{type}s") do
-        references[type]
+        @references[type] ||= references(type, reference_context)
       end
+    end
+
+    def issues
+      if project && project.jira_tracker?
+        @references[:external_issue] ||= references(:external_issue, reference_context)
+      else
+        @references[:issue] ||= references(:issue, reference_context)
+      end
+    end
+
+    def all
+      REFERABLES.each { |referable| send(referable.to_s.pluralize) }
+      @references.values.flatten
+    end
+
+    def self.references_pattern
+      return @pattern if @pattern
+
+      patterns = REFERABLES.map do |ref|
+        ref.to_s.classify.constantize.try(:reference_pattern)
+      end
+
+      @pattern = Regexp.union(patterns.compact)
     end
 
     private
 
-    def markdown
-      @markdown ||= Redcarpet::Markdown.new(Redcarpet::Render::HTML, GitlabMarkdownHelper::MARKDOWN_OPTIONS)
-    end
-
-    def references
-      @references ||= Hash.new do |references, type|
-        type = type.to_sym
-        return references[type] if references.has_key?(type)
-
-        references[type] = pipeline_result(type).uniq
-      end
-    end
-
-    # Instantiate and call HTML::Pipeline with a single reference filter type,
-    # returning the result
-    #
-    # filter_type - Symbol reference type (e.g., :commit, :issue, etc.)
-    #
-    # Returns the results Array for the requested filter type
-    def pipeline_result(filter_type)
-      klass  = filter_type.to_s.camelize + 'ReferenceFilter'
-      filter = "Gitlab::Markdown::#{klass}".constantize
-
-      context = {
-        project: project,
-        current_user: current_user,
-        # We don't actually care about the links generated
-        only_path: true,
-        ignore_blockquotes: true
-      }
-
-      pipeline = HTML::Pipeline.new([filter], context)
-      result = pipeline.call(@text)
-
-      result[:references][filter_type]
+    def reference_context
+      { project: project, current_user: current_user, author: author }
     end
   end
 end

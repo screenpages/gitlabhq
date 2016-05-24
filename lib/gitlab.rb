@@ -1,5 +1,7 @@
-require 'gitlab/git'
+require_dependency 'gitlab/git'
 
 module Gitlab
-  autoload :Satellite, 'gitlab/satellite/satellite'
+  def self.com?
+    Gitlab.config.gitlab.url == 'https://gitlab.com'
+  end
 end

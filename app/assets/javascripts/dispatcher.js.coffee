@@ -14,47 +14,55 @@ class Dispatcher
 
     path = page.split(':')
     shortcut_handler = null
-
     switch page
       when 'projects:issues:index'
         Issues.init()
+        Issuable.init()
         shortcut_handler = new ShortcutsNavigation()
       when 'projects:issues:show'
         new Issue()
         shortcut_handler = new ShortcutsIssuable()
         new ZenMode()
-      when 'projects:milestones:show'
+      when 'projects:milestones:show', 'groups:milestones:show', 'dashboard:milestones:show'
         new Milestone()
+      when 'dashboard:todos:index'
+        new Todos()
       when 'projects:milestones:new', 'projects:milestones:edit'
         new ZenMode()
-        new DropzoneInput($('.milestone-form'))
+        new GLForm($('.milestone-form'))
+      when 'groups:milestones:new'
+        new ZenMode()
       when 'projects:compare:show'
         new Diff()
       when 'projects:issues:new','projects:issues:edit'
         shortcut_handler = new ShortcutsNavigation()
-        new DropzoneInput($('.issue-form'))
+        new GLForm($('.issue-form'))
         new IssuableForm($('.issue-form'))
       when 'projects:merge_requests:new', 'projects:merge_requests:edit'
         new Diff()
         shortcut_handler = new ShortcutsNavigation()
-        new DropzoneInput($('.merge-request-form'))
+        new GLForm($('.merge-request-form'))
         new IssuableForm($('.merge-request-form'))
+      when 'projects:tags:new'
+        new ZenMode()
+        new GLForm($('.tag-form'))
+      when 'projects:releases:edit'
+        new ZenMode()
+        new GLForm($('.release-form'))
       when 'projects:merge_requests:show'
         new Diff()
-        shortcut_handler = new ShortcutsIssuable()
+        shortcut_handler = new ShortcutsIssuable(true)
         new ZenMode()
       when "projects:merge_requests:diffs"
         new Diff()
         new ZenMode()
       when 'projects:merge_requests:index'
         shortcut_handler = new ShortcutsNavigation()
-        MergeRequests.init()
-      when 'dashboard:show', 'root:show'
-        new Dashboard()
+        Issuable.init()
+      when 'dashboard:activity'
         new Activities()
       when 'dashboard:projects:starred'
         new Activities()
-        new ProjectsList()
       when 'projects:commit:show'
         new Commit()
         new Diff()
@@ -66,22 +74,26 @@ class Dispatcher
         shortcut_handler = new ShortcutsNavigation()
       when 'projects:show'
         shortcut_handler = new ShortcutsNavigation()
-      when 'groups:show'
+
+        new TreeView() if $('#tree-slider').length
+      when 'groups:activity'
         new Activities()
+      when 'groups:show'
         shortcut_handler = new ShortcutsNavigation()
-        new ProjectsList()
       when 'groups:group_members:index'
         new GroupMembers()
         new UsersSelect()
       when 'projects:project_members:index'
         new ProjectMembers()
         new UsersSelect()
-      when 'groups:new', 'groups:edit', 'admin:groups:edit'
+      when 'groups:new', 'groups:edit', 'admin:groups:edit', 'admin:groups:new'
         new GroupAvatar()
       when 'projects:tree:show'
-        new TreeView()
         shortcut_handler = new ShortcutsNavigation()
-      when 'projects:blob:show'
+        new TreeView()
+      when 'projects:find_file:show'
+        shortcut_handler = true
+      when 'projects:blob:show', 'projects:blame:show'
         new LineHighlighter()
         shortcut_handler = new ShortcutsNavigation()
       when 'projects:labels:new', 'projects:labels:edit'
@@ -92,11 +104,12 @@ class Dispatcher
         shortcut_handler = true
       when 'projects:forks:new'
         new ProjectFork()
-      when 'users:show'
-        new User()
-        new Activities()
-      when 'admin:users:show'
-        new ProjectsList()
+      when 'projects:artifacts:browse'
+        new BuildArtifacts()
+      when 'projects:group_links:index'
+        new GroupsSelect()
+      when 'search:show'
+        new Search()
 
     switch path.first()
       when 'admin'
@@ -127,21 +140,20 @@ class Dispatcher
             new Wikis()
             shortcut_handler = new ShortcutsNavigation()
             new ZenMode()
-            new DropzoneInput($('.wiki-form'))
-          when 'snippets', 'labels', 'graphs'
+            new GLForm($('.wiki-form'))
+          when 'snippets'
+            shortcut_handler = new ShortcutsNavigation()
+            new ZenMode() if path[2] == 'show'
+          when 'labels', 'graphs'
             shortcut_handler = new ShortcutsNavigation()
           when 'project_members', 'deploy_keys', 'hooks', 'services', 'protected_branches'
             shortcut_handler = new ShortcutsNavigation()
-
 
     # If we haven't installed a custom shortcut handler, install the default one
     if not shortcut_handler
       new Shortcuts()
 
   initSearch: ->
-    opts = $('.search-autocomplete-opts')
-    path = opts.data('autocomplete-path')
-    project_id = opts.data('autocomplete-project-id')
-    project_ref = opts.data('autocomplete-project-ref')
 
-    new SearchAutocomplete(path, project_id, project_ref)
+    # Only when search form is present
+    new SearchAutocomplete() if $('.search').length

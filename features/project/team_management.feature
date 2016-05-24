@@ -13,14 +13,12 @@ Feature: Project Team Management
 
   @javascript
   Scenario: Add user to project
-    Given I click link "Add members"
-    And I select "Mike" as "Reporter"
+    When I select "Mike" as "Reporter"
     Then I should see "Mike" in team list as "Reporter"
 
   @javascript
   Scenario: Invite user to project
-    Given I click link "Add members"
-    And I select "sjobs@apple.com" as "Reporter"
+    When I select "sjobs@apple.com" as "Reporter"
     Then I should see "sjobs@apple.com" in team list as invited "Reporter"
 
   @javascript
@@ -41,3 +39,8 @@ Feature: Project Team Management
     And I click link "Import team from another project"
     And I submit "Website" project for import team
     Then I should see "Mike" in team list as "Reporter"
+
+  Scenario: See all members of projects shared group
+    Given I share project with group "OpenSource"
+    And I visit project "Shop" team page
+    Then I should see "Opensource" group user listing

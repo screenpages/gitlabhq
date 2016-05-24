@@ -41,7 +41,7 @@ module Gitlab
           data[:issue] = note.noteable.hook_attrs
         elsif note.for_merge_request?
           data[:merge_request] = note.noteable.hook_attrs
-        elsif note.for_project_snippet?
+        elsif note.for_snippet?
           data[:snippet] = note.noteable.hook_attrs
         end
 
@@ -53,17 +53,13 @@ module Gitlab
           object_kind: "note",
           user: user.hook_attrs,
           project_id: project.id,
-          repository: {
-            name: project.name,
-            url: project.url_to_repo,
-            description: project.description,
-            homepage: project.web_url,
-          },
-          object_attributes: note.hook_attrs
+          project: project.hook_attrs,
+          object_attributes: note.hook_attrs,
+          # DEPRECATED
+          repository: project.hook_attrs.slice(:name, :url, :description, :homepage)
         }
 
-        base_data[:object_attributes][:url] =
-             Gitlab::UrlBuilder.new(:note).build(note.id)
+        base_data[:object_attributes][:url] = Gitlab::UrlBuilder.build(note)
         base_data
       end
 

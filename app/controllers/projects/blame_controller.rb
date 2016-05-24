@@ -7,7 +7,7 @@ class Projects::BlameController < Projects::ApplicationController
   before_action :authorize_download_code!
 
   def show
-    @blame = Gitlab::Git::Blame.new(@repository, @commit.id, @path)
-    @blob = @blame.blob
+    @blob = @repository.blob_at(@commit.id, @path)
+    @blame_groups = Gitlab::Blame.new(@blob, @commit).groups
   end
 end

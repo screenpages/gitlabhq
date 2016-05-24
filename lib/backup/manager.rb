@@ -1,6 +1,9 @@
 module Backup
   class Manager
     def pack
+      # Make sure there is a connection
+      ActiveRecord::Base.connection.reconnect!
+
       # saving additional informations
       s = {}
       s[:db_version]         = "#{ActiveRecord::Migrator.current_version}"
@@ -16,18 +19,16 @@ module Backup
           file << s.to_yaml.gsub(/^---\n/,'')
         end
 
-        FileUtils.chmod(0700, folders_to_backup)
-
         # create archive
         $progress.print "Creating backup archive: #{tar_file} ... "
-        orig_umask = File.umask(0077)
-        if Kernel.system('tar', '-cf', tar_file, *backup_contents)
+        # Set file permissions on open to prevent chmod races.
+        tar_system_options = {out: [tar_file, 'w', Gitlab.config.backup.archive_permissions]}
+        if Kernel.system('tar', '-cf', '-', *backup_contents, tar_system_options)
           $progress.puts "done".green
         else
           puts "creating archive #{tar_file} failed".red
           abort 'Backup failed'
         end
-        File.umask(orig_umask)
 
         upload(tar_file)
       end
@@ -47,7 +48,8 @@ module Backup
       directory = connection.directories.get(remote_directory)
 
       if directory.files.create(key: tar_file, body: File.open(tar_file), public: false,
-          multipart_chunk_size: Gitlab.config.backup.upload.multipart_chunk_size)
+          multipart_chunk_size: Gitlab.config.backup.upload.multipart_chunk_size,
+          encryption: Gitlab.config.backup.upload.encryption)
         $progress.puts "done".green
       else
         puts "uploading backup to #{remote_directory} failed".red
@@ -57,7 +59,7 @@ module Backup
 
     def cleanup
       $progress.print "Deleting tmp directories ... "
-      
+
       backup_contents.each do |dir|
         next unless File.exist?(File.join(Gitlab.config.backup.path, dir))
 
@@ -77,7 +79,7 @@ module Backup
 
       if keep_time > 0
         removed = 0
-        
+
         Dir.chdir(Gitlab.config.backup.path) do
           file_list = Dir.glob('*_gitlab_backup.tar')
           file_list.map! { |f| $1.to_i if f =~ /(\d+)_gitlab_backup.tar/ }
@@ -151,17 +153,15 @@ module Backup
     private
 
     def backup_contents
-      folders_to_backup + ["backup_information.yml"]
+      folders_to_backup + archives_to_backup + ["backup_information.yml"]
+    end
+
+    def archives_to_backup
+      %w{uploads builds artifacts lfs registry}.map{ |name| (name + ".tar.gz") unless skipped?(name) }.compact
     end
 
     def folders_to_backup
-      folders = %w{repositories db uploads}
-
-      if ENV["SKIP"]
-        return folders.reject{ |folder| ENV["SKIP"].include?(folder) }
-      end
-
-      folders
+      %w{repositories db}.reject{ |name| skipped?(name) }
     end
 
     def settings

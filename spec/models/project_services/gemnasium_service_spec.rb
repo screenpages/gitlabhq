@@ -20,10 +20,26 @@
 
 require 'spec_helper'
 
-describe GemnasiumService do
+describe GemnasiumService, models: true do
   describe "Associations" do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
+  end
+
+  describe 'Validations' do
+    context 'when service is active' do
+      before { subject.active = true }
+
+      it { is_expected.to validate_presence_of(:token) }
+      it { is_expected.to validate_presence_of(:api_key) }
+    end
+
+    context 'when service is inactive' do
+      before { subject.active = false }
+
+      it { is_expected.not_to validate_presence_of(:token) }
+      it { is_expected.not_to validate_presence_of(:api_key) }
+    end
   end
 
   describe "Execute" do

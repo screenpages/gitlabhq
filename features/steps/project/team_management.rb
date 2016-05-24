@@ -15,10 +15,6 @@ class Spinach::Features::ProjectTeamManagement < Spinach::FeatureSteps
     expect(page).to have_content(user.username)
   end
 
-  step 'I click link "Add members"' do
-    find(:css, 'button.btn-new').click
-  end
-
   step 'I select "Mike" as "Reporter"' do
     user = User.find_by(name: "Mike")
 
@@ -126,5 +122,24 @@ class Spinach::Features::ProjectTeamManagement < Spinach::FeatureSteps
     page.within "#project_member_#{project_member.id}" do
       click_link('Remove user from team')
     end
+  end
+
+  step 'I share project with group "OpenSource"' do
+    project = Project.find_by(name: 'Shop')
+    os_group = create(:group, name: 'OpenSource')
+    create(:project, group: os_group)
+    @os_user1 = create(:user)
+    @os_user2 = create(:user)
+    os_group.add_owner(@os_user1)
+    os_group.add_user(@os_user2, Gitlab::Access::DEVELOPER)
+    share_link = project.project_group_links.new(group_access: Gitlab::Access::MASTER)
+    share_link.group_id = os_group.id
+    share_link.save!
+  end
+
+  step 'I should see "Opensource" group user listing' do
+    expect(page).to have_content("Shared with OpenSource group, members with Master role (2)")
+    expect(page).to have_content(@os_user1.name)
+    expect(page).to have_content(@os_user2.name)
   end
 end

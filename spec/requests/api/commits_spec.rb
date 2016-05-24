@@ -6,8 +6,8 @@ describe API::API, api: true  do
   let(:user) { create(:user) }
   let(:user2) { create(:user) }
   let!(:project) { create(:project, creator_id: user.id) }
-  let!(:master) { create(:project_member, user: user, project: project, access_level: ProjectMember::MASTER) }
-  let!(:guest) { create(:project_member, user: user2, project: project, access_level: ProjectMember::GUEST) }
+  let!(:master) { create(:project_member, :master, user: user, project: project) }
+  let!(:guest) { create(:project_member, :guest, user: user2, project: project) }
   let!(:note) { create(:note_on_commit, author: user, project: project, commit_id: project.repository.commit.id, note: 'a comment on a commit') }
   let!(:another_note) { create(:note_on_commit, author: user, project: project, commit_id: project.repository.commit.id, note: 'another comment on a commit') }
 
@@ -32,6 +32,41 @@ describe API::API, api: true  do
         expect(response.status).to eq(401)
       end
     end
+
+    context "since optional parameter" do
+      it "should return project commits since provided parameter" do
+        commits = project.repository.commits("master")
+        since = commits.second.created_at
+
+        get api("/projects/#{project.id}/repository/commits?since=#{since.utc.iso8601}", user)
+
+        expect(json_response.size).to eq 2
+        expect(json_response.first["id"]).to eq(commits.first.id)
+        expect(json_response.second["id"]).to eq(commits.second.id)
+      end
+    end
+
+    context "until optional parameter" do
+      it "should return project commits until provided parameter" do
+        commits = project.repository.commits("master")
+        before = commits.second.created_at
+
+        get api("/projects/#{project.id}/repository/commits?until=#{before.utc.iso8601}", user)
+
+        expect(json_response.size).to eq(commits.size - 1)
+        expect(json_response.first["id"]).to eq(commits.second.id)
+        expect(json_response.second["id"]).to eq(commits.third.id)
+      end
+    end
+
+    context "invalid xmlschema date parameters" do
+      it "should return an invalid parameter error message" do
+        get api("/projects/#{project.id}/repository/commits?since=invalid-date", user)
+
+        expect(response.status).to eq(400)
+        expect(json_response['message']).to include "\"since\" must be a timestamp in ISO 8601 format"
+      end
+    end
   end
 
   describe "GET /projects:id/repository/commits/:sha" do
@@ -46,6 +81,19 @@ describe API::API, api: true  do
       it "should return a 404 error if not found" do
         get api("/projects/#{project.id}/repository/commits/invalid_sha", user)
         expect(response.status).to eq(404)
+      end
+
+      it "should return nil for commit without CI" do
+        get api("/projects/#{project.id}/repository/commits/#{project.repository.commit.id}", user)
+        expect(response.status).to eq(200)
+        expect(json_response['status']).to be_nil
+      end
+
+      it "should return status for CI" do
+        ci_commit = project.ensure_ci_commit(project.repository.commit.sha, 'master')
+        get api("/projects/#{project.id}/repository/commits/#{project.repository.commit.id}", user)
+        expect(response.status).to eq(200)
+        expect(json_response['status']).to eq(ci_commit.status)
       end
     end
 

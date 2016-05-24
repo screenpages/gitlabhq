@@ -1,43 +1,39 @@
 class @EditBlob
-  constructor: (assets_path, mode)->
-    ace.config.set "modePath", assets_path + '/ace'
+  constructor: (assets_path, ace_mode = null) ->
+    ace.config.set "modePath", "#{assets_path}/ace"
     ace.config.loadModule "ace/ext/searchbox"
-    if mode
-      ace_mode = mode
-    editor = ace.edit("editor")
-    editor.focus()
-    @editor = editor
+    @editor = ace.edit("editor")
+    @editor.focus()
+    @editor.getSession().setMode "ace/mode/#{ace_mode}" if ace_mode
 
-    if ace_mode
-      editor.getSession().setMode "ace/mode/" + ace_mode
+    # Before a form submission, move the content from the Ace editor into the
+    # submitted textarea
+    $('form').submit =>
+      $("#file-content").val(@editor.getValue())
 
-    $(".js-commit-button").click ->
-      $("#file-content").val editor.getValue()
-      $(".file-editor form").submit()
-      return false
+    @initModePanesAndLinks()
+    new BlobLicenseSelector(@editor)
 
-    editModePanes = $(".js-edit-mode-pane")
-    editModeLinks = $(".js-edit-mode a")
-    editModeLinks.click (event) ->
-      event.preventDefault()
-      currentLink = $(this)
-      paneId = currentLink.attr("href")
-      currentPane = editModePanes.filter(paneId)
-      editModeLinks.parent().removeClass "active hover"
-      currentLink.parent().addClass "active hover"
-      editModePanes.hide()
-      if paneId is "#preview"
-        currentPane.fadeIn 200
-        $.post currentLink.data("preview-url"),
-          content: editor.getValue()
-        , (response) ->
-          currentPane.empty().append response
-          return
+  initModePanesAndLinks: ->
+    @$editModePanes = $(".js-edit-mode-pane")
+    @$editModeLinks = $(".js-edit-mode a")
+    @$editModeLinks.click @editModeLinkClickHandler
 
-      else
-        currentPane.fadeIn 200
-        editor.focus()
-      return
+  editModeLinkClickHandler: (event) =>
+    event.preventDefault()
+    currentLink = $(event.target)
+    paneId = currentLink.attr("href")
+    currentPane = @$editModePanes.filter(paneId)
+    @$editModeLinks.parent().removeClass "active hover"
+    currentLink.parent().addClass "active hover"
+    @$editModePanes.hide()
+    currentPane.fadeIn 200
+    if paneId is "#preview"
+      $.post currentLink.data("preview-url"),
+        content: @editor.getValue()
+      , (response) ->
+        currentPane.empty().append response
+        currentPane.syntaxHighlight()
 
-  editor: ->
-    return @editor
+    else
+      @editor.focus()

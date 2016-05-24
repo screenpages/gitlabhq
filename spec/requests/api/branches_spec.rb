@@ -7,8 +7,8 @@ describe API::API, api: true  do
   let(:user) { create(:user) }
   let(:user2) { create(:user) }
   let!(:project) { create(:project, creator_id: user.id) }
-  let!(:master) { create(:project_member, user: user, project: project, access_level: ProjectMember::MASTER) }
-  let!(:guest) { create(:project_member, user: user2, project: project, access_level: ProjectMember::GUEST) }
+  let!(:master) { create(:project_member, :master, user: user, project: project) }
+  let!(:guest) { create(:project_member, :guest, user: user2, project: project) }
   let!(:branch_name) { 'feature' }
   let!(:branch_sha) { '0b4bc9a49b562e85de7cc9e834518ea6828729b9' }
 
@@ -19,7 +19,8 @@ describe API::API, api: true  do
       get api("/projects/#{project.id}/repository/branches", user)
       expect(response.status).to eq(200)
       expect(json_response).to be_an Array
-      expect(json_response.first['name']).to eq(project.repository.branch_names.first)
+      branch_names = json_response.map { |x| x['name'] }
+      expect(branch_names).to match_array(project.repository.branch_names)
     end
   end
 
@@ -117,7 +118,7 @@ describe API::API, api: true  do
            branch_name: 'new design',
            ref: branch_sha
       expect(response.status).to eq(400)
-      expect(json_response['message']).to eq('Branch name invalid')
+      expect(json_response['message']).to eq('Branch name is invalid')
     end
 
     it 'should return 400 if branch already exists' do

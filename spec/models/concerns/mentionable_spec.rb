@@ -1,5 +1,22 @@
 require 'spec_helper'
 
+describe Mentionable do
+  include Mentionable
+
+  def author
+    nil
+  end
+
+  describe :references do
+    let(:project) { create(:project) }
+
+    it 'excludes JIRA references' do
+      allow(project).to receive_messages(jira_tracker?: true)
+      expect(referenced_mentionables(project, 'JIRA-123')).to be_empty
+    end
+  end
+end
+
 describe Issue, "Mentionable" do
   describe '#mentioned_users' do
     let!(:user) { create(:user, username: 'stranger') }
@@ -25,13 +42,14 @@ describe Issue, "Mentionable" do
     it 'correctly removes already-mentioned Commits' do
       expect(SystemNoteService).not_to receive(:cross_reference)
 
-      issue.create_cross_references!(project, author, [commit2])
+      issue.create_cross_references!(author, [commit2])
     end
   end
 
   describe '#create_new_cross_references!' do
     let(:project) { create(:project) }
-    let(:issues)  { create_list(:issue, 2, project: project) }
+    let(:author)  { create(:author) }
+    let(:issues)  { create_list(:issue, 2, project: project, author: author) }
 
     context 'before changes are persisted' do
       it 'ignores pre-existing references' do
@@ -74,7 +92,7 @@ describe Issue, "Mentionable" do
     end
 
     def create_issue(description:)
-      create(:issue, project: project, description: description)
+      create(:issue, project: project, description: description, author: author)
     end
   end
 end

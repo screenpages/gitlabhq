@@ -5,21 +5,27 @@ module Gitlab
 
       def initialize(project)
         @project = project
-        @client = Client.new(project.creator.gitlab_access_token)
-        @formatter = Gitlab::ImportFormatter.new
+        credentials = project.import_data
+        if credentials && credentials[:password]
+          @client = Client.new(credentials[:password])
+          @formatter = Gitlab::ImportFormatter.new
+        else
+          raise Projects::ImportService::Error, "Unable to find project import data credentials for project ID: #{@project.id}"
+        end
       end
 
       def execute
-        project_identifier = URI.encode(project.import_source, '/')
+        project_identifier = CGI.escape(project.import_source)
 
         #Issues && Comments
         issues = client.issues(project_identifier)
-        
+
         issues.each do |issue|
-          body = @formatter.author_line(issue["author"]["name"], issue["description"])
-          
+          body = @formatter.author_line(issue["author"]["name"])
+          body += issue["description"]
+
           comments = client.issue_comments(project_identifier, issue["id"])
-          
+
           if comments.any?
             body += @formatter.comments_header
           end
@@ -29,13 +35,13 @@ module Gitlab
           end
 
           project.issues.create!(
-            description: body, 
+            description: body,
             title: issue["title"],
             state: issue["state"],
             author_id: gl_user_id(project, issue["author"]["id"])
           )
         end
-        
+
         true
       end
 

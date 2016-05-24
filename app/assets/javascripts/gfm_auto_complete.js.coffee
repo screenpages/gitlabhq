@@ -2,6 +2,8 @@
 
 window.GitLab ?= {}
 GitLab.GfmAutoComplete =
+  dataLoading: false
+
   dataSource: ''
 
   # Emoji
@@ -16,25 +18,53 @@ GitLab.GfmAutoComplete =
   Issues:
     template: '<li><small>${id}</small> ${title}</li>'
 
-  # Add GFM auto-completion to all input fields, that accept GFM input.
-  setup: ->
-    input = $('.js-gfm-input')
+  # Milestones
+  Milestones:
+    template: '<li>${title}</li>'
 
+  # Add GFM auto-completion to all input fields, that accept GFM input.
+  setup: (wrap) ->
+    @input = $('.js-gfm-input')
+
+    # destroy previous instances
+    @destroyAtWho()
+
+    # set up instances
+    @setupAtWho()
+
+    if @dataSource
+      if !@dataLoading
+        @dataLoading = true
+
+        # We should wait until initializations are done
+        # and only trigger the last .setup since
+        # The previous .dataSource belongs to the previous issuable
+        # and the last one will have the **proper** .dataSource property
+        # TODO: Make this a singleton and turn off events when moving to another page
+        setTimeout( =>
+          fetch = @fetchData(@dataSource)
+          fetch.done (data) =>
+            @dataLoading = false
+            @loadData(data)
+        , 1000)
+
+
+  setupAtWho: ->
     # Emoji
-    input.atwho
+    @input.atwho
       at: ':'
       displayTpl: @Emoji.template
       insertTpl: ':${name}:'
 
     # Team Members
-    input.atwho
+    @input.atwho
       at: '@'
       displayTpl: @Members.template
       insertTpl: '${atwho-at}${username}'
       searchKey: 'search'
       callbacks:
         beforeSave: (members) ->
-          $.map members, (m) -> 
+          $.map members, (m) ->
             title = m.name
             title += " (#{m.count})" if m.count
 
@@ -42,7 +72,7 @@ GitLab.GfmAutoComplete =
             title:    sanitize(title)
             search:   sanitize("#{m.username} #{m.name}")
 
-    input.atwho
+    @input.atwho
       at: '#'
       alias: 'issues'
       searchKey: 'search'
@@ -50,12 +80,25 @@ GitLab.GfmAutoComplete =
       insertTpl: '${atwho-at}${id}'
       callbacks:
         beforeSave: (issues) ->
-          $.map issues, (i) -> 
+          $.map issues, (i) ->
             id:     i.iid
             title:  sanitize(i.title)
             search: "#{i.iid} #{i.title}"
 
-    input.atwho
+    @input.atwho
+      at: '%'
+      alias: 'milestones'
+      searchKey: 'search'
+      displayTpl: @Milestones.template
+      insertTpl: '${atwho-at}"${title}"'
+      callbacks:
+        beforeSave: (milestones) ->
+          $.map milestones, (m) ->
+            id:     m.iid
+            title:  sanitize(m.title)
+            search: "#{m.title}"
+
+    @input.atwho
       at: '!'
       alias: 'mergerequests'
       searchKey: 'search'
@@ -63,18 +106,25 @@ GitLab.GfmAutoComplete =
       insertTpl: '${atwho-at}${id}'
       callbacks:
         beforeSave: (merges) ->
-          $.map merges, (m) -> 
+          $.map merges, (m) ->
             id:     m.iid
             title:  sanitize(m.title)
             search: "#{m.iid} #{m.title}"
 
-    input.one 'focus', =>
-      $.getJSON(@dataSource).done (data) ->
-        # load members
-        input.atwho 'load', '@', data.members
-        # load issues
-        input.atwho 'load', 'issues', data.issues
-        # load merge requests
-        input.atwho 'load', 'mergerequests', data.mergerequests
-        # load emojis
-        input.atwho 'load', ':', data.emojis
+  destroyAtWho: ->
+    @input.atwho('destroy')
+
+  fetchData: (dataSource) ->
+    $.getJSON(dataSource)
+
+  loadData: (data) ->
+    # load members
+    @input.atwho 'load', '@', data.members
+    # load issues
+    @input.atwho 'load', 'issues', data.issues
+    # load milestones
+    @input.atwho 'load', 'milestones', data.milestones
+    # load merge requests
+    @input.atwho 'load', 'mergerequests', data.mergerequests
+    # load emojis
+    @input.atwho 'load', ':', data.emojis

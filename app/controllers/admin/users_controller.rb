@@ -31,27 +31,55 @@ class Admin::UsersController < Admin::ApplicationController
     user
   end
 
+  def impersonate
+    if user.blocked?
+      flash[:alert] = "You cannot impersonate a blocked user"
+
+      redirect_to admin_user_path(user)
+    else
+      session[:impersonator_id] = current_user.id
+
+      warden.set_user(user, scope: :user)
+
+      Gitlab::AppLogger.info("User #{current_user.username} has started impersonating #{user.username}")
+
+      flash[:alert] = "You are now impersonating #{user.username}"
+
+      redirect_to root_path
+    end
+  end
+
   def block
     if user.block
-      redirect_to :back, notice: "Successfully blocked"
+      redirect_back_or_admin_user(notice: "Successfully blocked")
     else
-      redirect_to :back, alert: "Error occurred. User was not blocked"
+      redirect_back_or_admin_user(alert: "Error occurred. User was not blocked")
     end
   end
 
   def unblock
-    if user.activate
-      redirect_to :back, notice: "Successfully unblocked"
+    if user.ldap_blocked?
+      redirect_back_or_admin_user(alert: "This user cannot be unlocked manually from GitLab")
+    elsif user.activate
+      redirect_back_or_admin_user(notice: "Successfully unblocked")
     else
-      redirect_to :back, alert: "Error occurred. User was not unblocked"
+      redirect_back_or_admin_user(alert: "Error occurred. User was not unblocked")
     end
   end
 
   def unlock
     if user.unlock_access!
-      redirect_to :back, alert: "Successfully unlocked"
+      redirect_back_or_admin_user(alert: "Successfully unlocked")
     else
-      redirect_to :back, alert: "Error occurred. User was not unlocked"
+      redirect_back_or_admin_user(alert: "Error occurred. User was not unlocked")
+    end
+  end
+
+  def confirm
+    if user.confirm
+      redirect_back_or_admin_user(notice: "Successfully confirmed")
+    else
+      redirect_back_or_admin_user(alert: "Error occurred. User was not confirmed")
     end
   end
 
@@ -91,6 +119,7 @@ class Admin::UsersController < Admin::ApplicationController
       user_params_with_pass.merge!(
         password: params[:user][:password],
         password_confirmation: params[:user][:password_confirmation],
+        password_expires_at: Time.now
       )
     end
 
@@ -109,10 +138,10 @@ class Admin::UsersController < Admin::ApplicationController
   end
 
   def destroy
-    DeleteUserService.new(current_user).execute(user)
+    DeleteUserWorker.perform_async(current_user.id, user.id)
 
     respond_to do |format|
-      format.html { redirect_to admin_users_path }
+      format.html { redirect_to admin_users_path, notice: "The user is being deleted." }
       format.json { head :ok }
     end
   end
@@ -124,8 +153,8 @@ class Admin::UsersController < Admin::ApplicationController
     user.update_secondary_emails!
 
     respond_to do |format|
-      format.html { redirect_to :back, notice: "Successfully removed email." }
-      format.js { render nothing: true }
+      format.html { redirect_back_or_admin_user(notice: "Successfully removed email.") }
+      format.js { head :ok }
     end
   end
 
@@ -140,7 +169,15 @@ class Admin::UsersController < Admin::ApplicationController
       :email, :remember_me, :bio, :name, :username,
       :skype, :linkedin, :twitter, :website_url, :color_scheme_id, :theme_id, :force_random_password,
       :extern_uid, :provider, :password_expires_at, :avatar, :hide_no_ssh_key, :hide_no_password,
-      :projects_limit, :can_create_group, :admin, :key_id
+      :projects_limit, :can_create_group, :admin, :key_id, :external
     )
+  end
+
+  def redirect_back_or_admin_user(options = {})
+    redirect_back_or_default(default: default_route, options: options)
+  end
+
+  def default_route
+    [:admin, @user]
   end
 end

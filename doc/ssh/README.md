@@ -3,41 +3,59 @@
 ## SSH keys
 
 An SSH key allows you to establish a secure connection between your
-computer and GitLab.
+computer and GitLab. Before generating an SSH key in your shell, check if your system
+already has one by running the following command:
 
-Before generating an SSH key, check if your system already has one by
-running `cat ~/.ssh/id_rsa.pub`. If you see a long string starting with
-`ssh-rsa` or `ssh-dsa`, you can skip the ssh-keygen step.
+**Windows Command Line:**
+```bash
+type %userprofile%\.ssh\id_rsa.pub
+```
+**GNU/Linux/Mac/PowerShell:**
+```bash
+cat ~/.ssh/id_rsa.pub
+```
 
-To generate a new SSH key, just open your terminal and use code below. The
-ssh-keygen command prompts you for a location and filename to store the key
-pair and for a password. When prompted for the location and filename, you
-can press enter to use the default.
+If you see a long string starting with `ssh-rsa`, you can skip the `ssh-keygen` step.
 
-It is a best practice to use a password for an SSH key, but it is not
+Note: It is a best practice to use a password for an SSH key, but it is not
 required and you can skip creating a password by pressing enter. Note that
 the password you choose here can't be altered or retrieved.
 
+To generate a new SSH key, use the following command:
 ```bash
 ssh-keygen -t rsa -C "$your_email"
 ```
+This command will prompt you for a location and filename to store the key
+pair and for a password. When prompted for the location and filename, just
+press enter to use the default. If you use a different name, the key will not
+be used automatically.
 
-Use the code below to show your public key.
+Use the command below to show your public key:
 
+**Windows Command Line:**
+```bash
+type %userprofile%\.ssh\id_rsa.pub
+```
+**GNU/Linux/Mac/PowerShell:**
 ```bash
 cat ~/.ssh/id_rsa.pub
 ```
 
 Copy-paste the key to the 'My SSH Keys' section under the 'SSH' tab in your
-user profile. Please copy the complete key starting with `ssh-` and ending
+user profile. Please copy the complete key starting with `ssh-rsa` and ending
 with your username and host.
 
-Use code below to copy your public key to the clipboard. Depending on your
+To copy your public key to the clipboard, use the code below. Depending on your
 OS you'll need to use a different command:
 
-**Windows:**
+**Windows Command Line:**
 ```bash
-clip < ~/.ssh/id_rsa.pub
+type %userprofile%\.ssh\id_rsa.pub | clip
+```
+
+**Windows PowerShell:**
+```bash
+cat ~/.ssh/id_rsa.pub | clip
 ```
 
 **Mac:**
@@ -72,15 +90,17 @@ access can happen through being a direct member of the project, or through
 a group. See `def accessible_deploy_keys` in `app/models/user.rb` for more
 information.
 
+Deploy keys can be shared between projects, you just need to add them to each project.
+
 ## Applications
 
 ### Eclipse
 
-How to add your ssh key to Eclipse: http://wiki.eclipse.org/EGit/User_Guide#Eclipse_SSH_Configuration
+How to add your ssh key to Eclipse: https://wiki.eclipse.org/EGit/User_Guide#Eclipse_SSH_Configuration
 
 ## Tip: Non-default OpenSSH key file names or locations
 
-If, for whatever reason, you decide to specify a non-default location and filename for your Gitlab SSH key pair, you must configure your SSH client to find your Gitlab SSH private key for connections to your Gitlab server (perhaps gitlab.com). For OpenSSH clients, this is handled in the `~/.ssh/config` file with a stanza similar to the following:
+If, for whatever reason, you decide to specify a non-default location and filename for your GitLab SSH key pair, you must configure your SSH client to find your GitLab SSH private key for connections to your GitLab server (perhaps gitlab.com). For OpenSSH clients, this is handled in the `~/.ssh/config` file with a stanza similar to the following:
 
 ```
 #
@@ -95,7 +115,7 @@ User mygitlabusername
 Another example
 ```
 #
-# Our company's internal Gitlab server
+# Our company's internal GitLab server
 #
 Host my-gitlab.company.com
 RSAAuthentication yes
@@ -105,3 +125,6 @@ IdentityFile ~/my-ssh-key-directory/company-com-private-key-filename
 Note in the gitlab.com example above a username was specified to override the default chosen by OpenSSH (your local username). This is only required if your local and remote usernames differ.
 
 Due to the wide variety of SSH clients and their very large number of configuration options, further explanation of these topics is beyond the scope of this document.
+
+Public SSH keys need to be unique, as they will bind to your account. Your SSH key is the only identifier you'll
+have when pushing code via SSH. That's why it needs to uniquely map to a single user.

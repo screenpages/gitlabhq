@@ -5,32 +5,43 @@
 # the compiled file.
 #
 #= require jquery
-#= require jquery.ui.all
+#= require jquery-ui/autocomplete
+#= require jquery-ui/datepicker
+#= require jquery-ui/draggable
+#= require jquery-ui/effect-highlight
+#= require jquery-ui/sortable
 #= require jquery_ujs
 #= require jquery.cookie
 #= require jquery.endless-scroll
 #= require jquery.highlight
-#= require jquery.history
 #= require jquery.waitforimages
 #= require jquery.atwho
 #= require jquery.scrollTo
-#= require jquery.blockUI
 #= require jquery.turbolinks
+#= require d3
+#= require cal-heatmap
 #= require turbolinks
 #= require autosave
-#= require bootstrap
+#= require bootstrap/affix
+#= require bootstrap/alert
+#= require bootstrap/button
+#= require bootstrap/collapse
+#= require bootstrap/dropdown
+#= require bootstrap/modal
+#= require bootstrap/scrollspy
+#= require bootstrap/tab
+#= require bootstrap/transition
+#= require bootstrap/tooltip
+#= require bootstrap/popover
 #= require select2
 #= require raphael
-#= require g.raphael-min
-#= require g.bar-min
-#= require chart-lib.min
+#= require g.raphael
+#= require g.bar
+#= require Chart
 #= require branch-graph
 #= require ace/ace
 #= require ace/ext-searchbox
-#= require d3
 #= require underscore
-#= require nprogress
-#= require nprogress-turbolinks
 #= require dropzone
 #= require mousetrap
 #= require mousetrap/pause
@@ -39,9 +50,11 @@
 #= require shortcuts_dashboard_navigation
 #= require shortcuts_issuable
 #= require shortcuts_network
-#= require cal-heatmap
-#= require jquery.nicescroll.min
+#= require jquery.nicescroll
+#= require date.format
 #= require_tree .
+#= require fuzzaldrin-plus
+#= require cropper
 
 window.slugify = (text) ->
   text.replace(/[^-a-zA-Z0-9]+/g, '_').toLowerCase()
@@ -94,17 +107,21 @@ window.unbindEvents = ->
   $(document).off('scroll')
 
 window.shiftWindow = ->
-  scrollBy 0, -50
+  scrollBy 0, -100
 
 document.addEventListener("page:fetch", unbindEvents)
 
-# Scroll the window to avoid the topnav bar
-# https://github.com/twitter/bootstrap/issues/1768
-if location.hash
-  setTimeout shiftWindow, 1
 window.addEventListener "hashchange", shiftWindow
 
+window.onload = ->
+  # Scroll the window to avoid the topnav bar
+  # https://github.com/twitter/bootstrap/issues/1768
+  if location.hash
+    setTimeout shiftWindow, 100
+
 $ ->
+  bootstrapBreakpoint = bp.getBreakpointSize()
+
   $(".nicescroll").niceScroll(cursoropacitymax: '0.4', cursorcolor: '#FFF', cursorborder: "1px solid #FFF")
 
   # Click a .js-select-on-focus field, select the contents
@@ -115,6 +132,12 @@ $ ->
 
   $('.remove-row').bind 'ajax:success', ->
     $(this).closest('li').fadeOut()
+
+  $('.js-remove-tr').bind 'ajax:before', ->
+    $(this).hide()
+
+  $('.js-remove-tr').bind 'ajax:success', ->
+    $(this).closest('tr').fadeOut()
 
   # Initialize select2 selects
   $('select.select2').select2(width: 'resolve', dropdownAutoWidth: true)
@@ -127,23 +150,31 @@ $ ->
     ), 1
 
   # Initialize tooltips
-  $('body').tooltip({
-    selector: '.has_tooltip, [data-toggle="tooltip"], .page-sidebar-collapsed .nav-sidebar a'
+  $('body').tooltip(
+    selector: '.has-tooltip, [data-toggle="tooltip"]'
     placement: (_, el) ->
       $el = $(el)
-      if $el.attr('id') == 'js-shortcuts-home'
-        # Place the logo tooltip on the right when collapsed, bottom when expanded
-        $el.parents('header').hasClass('header-collapsed') and 'right' or 'bottom'
-      else
-        # Otherwise use the data-placement attribute, or 'bottom' if undefined
-        $el.data('placement') or 'bottom'
-  })
+      $el.data('placement') || 'bottom'
+  )
+
+  $('.header-logo .home').tooltip(
+    placement: (_, el) ->
+      $el = $(el)
+      if $('.page-with-sidebar').hasClass('page-sidebar-collapsed') then 'right' else 'bottom'
+    container: 'body'
+  )
+
+  $('.page-with-sidebar').tooltip(
+    selector: '.sidebar-collapsed .nav-sidebar a, .sidebar-collapsed a.sidebar-user'
+    placement: 'right'
+    container: 'body'
+  )
 
   # Form submitter
   $('.trigger-submit').on 'change', ->
     $(@).parents('form').submit()
 
-  $('abbr.timeago, .js-timeago').timeago()
+  gl.utils.localTimeAgo($('abbr.timeago, .js-timeago'), true)
 
   # Flash
   if (flash = $(".flash-container")).length > 0
@@ -164,13 +195,16 @@ $ ->
   $('.account-box').hover -> $(@).toggleClass('hover')
 
   # Commit show suppressed diff
-  $(".diff-content").on "click", ".supp_diff_link", ->
-    $(@).next('table').show()
-    $(@).remove()
+  $(document).on 'click', '.diff-content .js-show-suppressed-diff', ->
+    $container = $(@).parent()
+    $container.next('table').show()
+    $container.remove()
 
   $('.navbar-toggle').on 'click', ->
     $('.header-content .title').toggle()
     $('.header-content .navbar-collapse').toggle()
+    $('.navbar-toggle').toggleClass('active')
+    $('.navbar-toggle i').toggleClass("fa-angle-right fa-angle-left")
 
   # Show/hide comments on diff
   $("body").on "click", ".js-toggle-diff-comments", (e) ->
@@ -186,4 +220,79 @@ $ ->
     form = btn.closest("form")
     new ConfirmDangerModal(form, text)
 
+  $('input[type="search"]').each ->
+    $this = $(this)
+    $this.attr 'value', $this.val()
+    return
+
+  $(document)
+    .off 'keyup', 'input[type="search"]'
+    .on 'keyup', 'input[type="search"]' , (e) ->
+      $this = $(this)
+      $this.attr 'value', $this.val()
+
+  $sidebarGutterToggle = $('.js-sidebar-toggle')
+  $navIconToggle = $('.toggle-nav-collapse')
+
+  $(document)
+    .off 'breakpoint:change'
+    .on 'breakpoint:change', (e, breakpoint) ->
+      if breakpoint is 'sm' or breakpoint is 'xs'
+        $gutterIcon = $sidebarGutterToggle.find('i')
+        if $gutterIcon.hasClass('fa-angle-double-right')
+          $sidebarGutterToggle.trigger('click')
+
+        $navIcon = $navIconToggle.find('.fa')
+        if $navIcon.hasClass('fa-angle-left')
+          $navIconToggle.trigger('click')
+
+  $(document)
+    .off 'click', '.js-sidebar-toggle'
+    .on 'click', '.js-sidebar-toggle', (e, triggered) ->
+      e.preventDefault()
+      $this = $(this)
+      $thisIcon = $this.find 'i'
+      $allGutterToggleIcons = $('.js-sidebar-toggle i')
+      if $thisIcon.hasClass('fa-angle-double-right')
+        $allGutterToggleIcons
+          .removeClass('fa-angle-double-right')
+          .addClass('fa-angle-double-left')
+        $('aside.right-sidebar')
+          .removeClass('right-sidebar-expanded')
+          .addClass('right-sidebar-collapsed')
+        $('.page-with-sidebar')
+          .removeClass('right-sidebar-expanded')
+          .addClass('right-sidebar-collapsed')
+      else
+        $allGutterToggleIcons
+          .removeClass('fa-angle-double-left')
+          .addClass('fa-angle-double-right')
+        $('aside.right-sidebar')
+          .removeClass('right-sidebar-collapsed')
+          .addClass('right-sidebar-expanded')
+        $('.page-with-sidebar')
+          .removeClass('right-sidebar-collapsed')
+          .addClass('right-sidebar-expanded')
+      if not triggered
+        $.cookie("collapsed_gutter",
+          $('.right-sidebar')
+            .hasClass('right-sidebar-collapsed'), { path: '/' })
+
+  fitSidebarForSize = ->
+    oldBootstrapBreakpoint = bootstrapBreakpoint
+    bootstrapBreakpoint = bp.getBreakpointSize()
+    if bootstrapBreakpoint != oldBootstrapBreakpoint
+      $(document).trigger('breakpoint:change', [bootstrapBreakpoint])
+
+  checkInitialSidebarSize = ->
+    bootstrapBreakpoint = bp.getBreakpointSize()
+    if bootstrapBreakpoint is "xs" or "sm"
+      $(document).trigger('breakpoint:change', [bootstrapBreakpoint])
+
+  $(window)
+    .off "resize"
+    .on "resize", (e) ->
+      fitSidebarForSize()
+
+  checkInitialSidebarSize()
   new Aside()

@@ -1,17 +1,6 @@
-# == Schema Information
-#
-# Table name: deploy_keys_projects
-#
-#  id            :integer          not null, primary key
-#  deploy_key_id :integer          not null
-#  project_id    :integer          not null
-#  created_at    :datetime
-#  updated_at    :datetime
-#
-
 require 'spec_helper'
 
-describe DeployKeysProject do
+describe DeployKeysProject, models: true do
   describe "Associations" do
     it { is_expected.to belong_to(:deploy_key) }
     it { is_expected.to belong_to(:project) }

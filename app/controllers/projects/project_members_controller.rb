@@ -1,6 +1,6 @@
 class Projects::ProjectMembersController < Projects::ApplicationController
   # Authorize
-  before_action :authorize_admin_project!, except: :leave
+  before_action :authorize_admin_project_member!, except: [:leave, :index]
 
   def index
     @project_members = @project.project_members
@@ -23,14 +23,11 @@ class Projects::ProjectMembersController < Projects::ApplicationController
         @group_members = @group_members.where(user_id: users)
       end
 
-      @group_members = @group_members.order('access_level DESC').limit(20)
+      @group_members = @group_members.order('access_level DESC')
     end
 
     @project_member = @project.project_members.new
-  end
-
-  def new
-    @project_member = @project.project_members.new
+    @project_group_links = @project.project_group_links
   end
 
   def create
@@ -41,18 +38,24 @@ class Projects::ProjectMembersController < Projects::ApplicationController
 
   def update
     @project_member = @project.project_members.find(params[:id])
+
+    return render_403 unless can?(current_user, :update_project_member, @project_member)
+
     @project_member.update_attributes(member_params)
   end
 
   def destroy
     @project_member = @project.project_members.find(params[:id])
+
+    return render_403 unless can?(current_user, :destroy_project_member, @project_member)
+
     @project_member.destroy
 
     respond_to do |format|
       format.html do
         redirect_to namespace_project_project_members_path(@project.namespace, @project)
       end
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 
@@ -71,22 +74,34 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   end
 
   def leave
-    if @project.namespace == current_user.namespace
-      return redirect_to(:back, alert: 'You can not leave your own project. Transfer or delete the project.')
-    end
+    @project_member = @project.project_members.find_by(user_id: current_user)
 
-    @project.project_members.find_by(user_id: current_user).destroy
+    if can?(current_user, :destroy_project_member, @project_member)
+      @project_member.destroy
 
-    respond_to do |format|
-      format.html { redirect_to dashboard_path }
-      format.js { render nothing: true }
+      respond_to do |format|
+        format.html { redirect_to dashboard_projects_path, notice: "You left the project." }
+        format.js { head :ok }
+      end
+    else
+      if current_user == @project.owner
+        message = 'You can not leave your own project. Transfer or delete the project.'
+        redirect_back_or_default(default: { action: 'index' }, options: { alert: message })
+      else
+        render_403
+      end
     end
   end
 
   def apply_import
-    giver = Project.find(params[:source_project_id])
-    status = @project.team.import(giver, current_user)
-    notice = status ? "Successfully imported" : "Import failed"
+    source_project = Project.find(params[:source_project_id])
+
+    if can?(current_user, :read_project_member, source_project)
+      status = @project.team.import(source_project, current_user)
+      notice = status ? "Successfully imported" : "Import failed"
+    else
+      return render_404
+    end
 
     redirect_to(namespace_project_project_members_path(project.namespace, project),
                 notice: notice)

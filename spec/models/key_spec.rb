@@ -1,21 +1,6 @@
-# == Schema Information
-#
-# Table name: keys
-#
-#  id          :integer          not null, primary key
-#  user_id     :integer
-#  created_at  :datetime
-#  updated_at  :datetime
-#  key         :text
-#  title       :string(255)
-#  type        :string(255)
-#  fingerprint :string(255)
-#  public      :boolean          default(FALSE), not null
-#
-
 require 'spec_helper'
 
-describe Key do
+describe Key, models: true do
   describe "Associations" do
     it { is_expected.to belong_to(:user) }
   end
@@ -32,6 +17,13 @@ describe Key do
 
   describe "Methods" do
     it { is_expected.to respond_to :projects }
+    it { is_expected.to respond_to :publishable_key }
+
+    describe "#publishable_keys" do
+      it 'strips all personal information' do
+        expect(build(:key).publishable_key).not_to match(/dummy@gitlab/)
+      end
+    end
   end
 
   context "validation of uniqueness" do
@@ -74,7 +66,7 @@ describe Key do
 
     it 'rejects the multiple line key' do
       key = build(:key)
-      key.key.gsub!(' ', "\n")
+      key.key.tr!(' ', "\n")
       expect(key).not_to be_valid
     end
   end

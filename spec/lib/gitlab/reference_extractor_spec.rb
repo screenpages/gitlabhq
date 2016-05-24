@@ -1,7 +1,8 @@
 require 'spec_helper'
 
-describe Gitlab::ReferenceExtractor do
+describe Gitlab::ReferenceExtractor, lib: true do
   let(:project) { create(:project) }
+
   subject { Gitlab::ReferenceExtractor.new(project, project.creator) }
 
   it 'accesses valid user objects' do
@@ -13,7 +14,7 @@ describe Gitlab::ReferenceExtractor do
     project.team << [@u_bar, :guest]
 
     subject.analyze('@foo, @baduser, @bar, and @offteam')
-    expect(subject.users).to eq([@u_foo, @u_bar, @u_offteam])
+    expect(subject.users).to match_array([@u_foo, @u_bar, @u_offteam])
   end
 
   it 'ignores user mentions inside specific elements' do
@@ -25,7 +26,7 @@ describe Gitlab::ReferenceExtractor do
     project.team << [@u_bar, :guest]
 
     subject.analyze(%Q{
-      Inline code: `@foo` 
+      Inline code: `@foo`
 
       Code block:
 
@@ -33,27 +34,28 @@ describe Gitlab::ReferenceExtractor do
       @bar
       ```
 
-      Quote: 
+      Quote:
 
       > @offteam
     })
-    expect(subject.users).to eq([])
+    expect(subject.users).to match_array([])
   end
 
   it 'accesses valid issue objects' do
+    project.team << [project.creator, :developer]
     @i0 = create(:issue, project: project)
     @i1 = create(:issue, project: project)
 
     subject.analyze("#{@i0.to_reference}, #{@i1.to_reference}, and #{Issue.reference_prefix}999.")
-    expect(subject.issues).to eq([@i0, @i1])
+    expect(subject.issues).to match_array([@i0, @i1])
   end
 
   it 'accesses valid merge requests' do
-    @m0 = create(:merge_request, source_project: project, target_project: project, source_branch: 'aaa')
-    @m1 = create(:merge_request, source_project: project, target_project: project, source_branch: 'bbb')
+    @m0 = create(:merge_request, source_project: project, target_project: project, source_branch: 'markdown')
+    @m1 = create(:merge_request, source_project: project, target_project: project, source_branch: 'feature_conflict')
 
     subject.analyze("!999, !#{@m1.iid}, and !#{@m0.iid}.")
-    expect(subject.merge_requests).to eq([@m1, @m0])
+    expect(subject.merge_requests).to match_array([@m1, @m0])
   end
 
   it 'accesses valid labels' do
@@ -62,7 +64,7 @@ describe Gitlab::ReferenceExtractor do
     @l2 = create(:label)
 
     subject.analyze("~#{@l0.id}, ~999, ~#{@l2.id}, ~#{@l1.id}")
-    expect(subject.labels).to eq([@l0, @l1])
+    expect(subject.labels).to match_array([@l0, @l1])
   end
 
   it 'accesses valid snippets' do
@@ -71,7 +73,7 @@ describe Gitlab::ReferenceExtractor do
     @s2 = create(:project_snippet)
 
     subject.analyze("$#{@s0.id}, $999, $#{@s2.id}, $#{@s1.id}")
-    expect(subject.snippets).to eq([@s0, @s1])
+    expect(subject.snippets).to match_array([@s0, @s1])
   end
 
   it 'accesses valid commits' do
@@ -97,6 +99,16 @@ describe Gitlab::ReferenceExtractor do
     expect(extracted.first.commit_to).to eq commit
   end
 
+  context 'with an external issue tracker' do
+    let(:project) { create(:jira_project) }
+    subject { described_class.new(project, project.creator) }
+
+    it 'returns JIRA issues for a JIRA-integrated project' do
+      subject.analyze('JIRA-123 and FOOBAR-4567')
+      expect(subject.issues).to eq [JiraIssue.new('JIRA-123', project), JiraIssue.new('FOOBAR-4567', project)]
+    end
+  end
+
   context 'with a project with an underscore' do
     let(:other_project) { create(:project, path: 'test_project') }
     let(:issue) { create(:issue, project: other_project) }
@@ -109,7 +121,27 @@ describe Gitlab::ReferenceExtractor do
       subject.analyze("this refers issue #{issue.to_reference(project)}")
       extracted = subject.issues
       expect(extracted.size).to eq(1)
-      expect(extracted).to eq([issue])
+      expect(extracted).to match_array([issue])
     end
+  end
+
+  describe '#all' do
+    let(:issue) { create(:issue, project: project) }
+    let(:label) { create(:label, project: project) }
+    let(:text) { "Ref. #{issue.to_reference} and #{label.to_reference}" }
+
+    before do
+      project.team << [project.creator, :developer]
+      subject.analyze(text)
+    end
+
+    it 'returns all referables' do
+      expect(subject.all).to match_array([issue, label])
+    end
+  end
+
+  describe '.references_pattern' do
+    subject { described_class.references_pattern }
+    it { is_expected.to be_kind_of Regexp }
   end
 end

@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe SystemNoteService do
+describe SystemNoteService, services: true do
   let(:project)  { create(:project) }
   let(:author)   { create(:user) }
   let(:noteable) { create(:issue, project: project) }
@@ -171,7 +171,7 @@ describe SystemNoteService do
 
     context 'when milestone added' do
       it 'sets the note text' do
-        expect(subject.note).to eq "Milestone changed to #{milestone.title}"
+        expect(subject.note).to eq "Milestone changed to #{milestone.to_reference}"
       end
     end
 
@@ -207,6 +207,32 @@ describe SystemNoteService do
     end
   end
 
+  describe '.merge_when_build_succeeds' do
+    let(:ci_commit) { build :ci_commit_without_jobs }
+    let(:noteable) { create :merge_request }
+
+    subject { described_class.merge_when_build_succeeds(noteable, project, author, noteable.last_commit) }
+
+    it_behaves_like 'a system note'
+
+    it "posts the Merge When Build Succeeds system note" do
+      expect(subject.note).to match  /Enabled an automatic merge when the build for (\w+\/\w+@)?[0-9a-f]{40} succeeds/
+    end
+  end
+
+  describe '.cancel_merge_when_build_succeeds' do
+    let(:ci_commit) { build :ci_commit_without_jobs }
+    let(:noteable) { create :merge_request }
+
+    subject { described_class.cancel_merge_when_build_succeeds(noteable, project, author) }
+
+    it_behaves_like 'a system note'
+
+    it "posts the Merge When Build Succeeds system note" do
+      expect(subject.note).to eq  "Canceled the automatic merge"
+    end
+  end
+
   describe '.change_title' do
     subject { described_class.change_title(noteable, project, author, 'Old title') }
 
@@ -215,15 +241,19 @@ describe SystemNoteService do
 
       it 'sets the note text' do
         expect(subject.note).
-          to eq "Title changed from **Old title** to **#{noteable.title}**"
+          to eq "Changed title: **{-Old title-}** → **{+#{noteable.title}+}**"
       end
     end
+  end
 
-    context 'when noteable does not respond to `title' do
-      let(:noteable) { double('noteable') }
+  describe '.change_issue_confidentiality' do
+    subject { described_class.change_issue_confidentiality(noteable, project, author) }
 
-      it 'returns nil' do
-        expect(subject).to be_nil
+    context 'when noteable responds to `confidential`' do
+      it_behaves_like 'a system note'
+
+      it 'sets the note text' do
+        expect(subject.note).to eq 'Made the issue visible'
       end
     end
   end
@@ -238,6 +268,30 @@ describe SystemNoteService do
     context 'when target branch name changed' do
       it 'sets the note text' do
         expect(subject.note).to eq "Target branch changed from `#{old_branch}` to `#{new_branch}`"
+      end
+    end
+  end
+
+  describe '.change_branch_presence' do
+    subject { described_class.change_branch_presence(noteable, project, author, :source, 'feature', :delete) }
+
+    it_behaves_like 'a system note'
+
+    context 'when source branch deleted' do
+      it 'sets the note text' do
+        expect(subject.note).to eq "Deleted source branch `feature`"
+      end
+    end
+  end
+
+  describe '.new_issue_branch' do
+    subject { described_class.new_issue_branch(noteable, project, author, "1-mepmep") }
+
+    it_behaves_like 'a system note'
+
+    context 'when a branch is created from the new branch button' do
+      it 'sets the note text' do
+        expect(subject.note).to match /\AStarted branch [`1-mepmep`]/
       end
     end
   end
@@ -384,6 +438,144 @@ describe SystemNoteService do
       it 'is falsey when not already mentioned' do
         expect(described_class.cross_reference_exists?(commit1, commit0)).
           to be_falsey
+      end
+    end
+
+    context 'commit with cross-reference from fork' do
+      let(:author2) { create(:user) }
+      let(:forked_project) { Projects::ForkService.new(project, author2).execute }
+      let(:commit2) { forked_project.commit }
+
+      before do
+        described_class.cross_reference(noteable, commit0, author2)
+      end
+
+      it 'is true when a fork mentions an external issue' do
+        expect(described_class.cross_reference_exists?(noteable, commit2)).
+            to be true
+      end
+    end
+  end
+
+  describe '.noteable_moved' do
+    let(:new_project) { create(:project) }
+    let(:new_noteable) { create(:issue, project: new_project) }
+
+    subject do
+      described_class.noteable_moved(noteable, project, new_noteable, author, direction: direction)
+    end
+
+    shared_examples 'cross project mentionable' do
+      include GitlabMarkdownHelper
+
+      it 'should contain cross reference to new noteable' do
+        expect(subject.note).to include cross_project_reference(new_project, new_noteable)
+      end
+
+      it 'should mention referenced noteable' do
+        expect(subject.note).to include new_noteable.to_reference
+      end
+
+      it 'should mention referenced project' do
+        expect(subject.note).to include new_project.to_reference
+      end
+    end
+
+    context 'moved to' do
+      let(:direction) { :to }
+
+      it_behaves_like 'cross project mentionable'
+
+      it 'should notify about noteable being moved to' do
+        expect(subject.note).to match /Moved to/
+      end
+    end
+
+    context 'moved from' do
+      let(:direction) { :from }
+
+      it_behaves_like 'cross project mentionable'
+
+      it 'should notify about noteable being moved from' do
+        expect(subject.note).to match /Moved from/
+      end
+    end
+
+    context 'invalid direction' do
+      let(:direction) { :invalid }
+
+      it 'should raise error' do
+        expect { subject }.to raise_error StandardError, /Invalid direction/
+      end
+    end
+  end
+
+  describe '.new_commit_summary' do
+    it 'escapes HTML titles' do
+      commit = double(title: '<pre>This is a test</pre>', short_id: '12345678')
+      escaped = '* 12345678 - &lt;pre&gt;This is a test&lt;&#x2F;pre&gt;'
+
+      expect(described_class.new_commit_summary([commit])).to eq([escaped])
+    end
+  end
+
+  include JiraServiceHelper
+
+  describe 'JIRA integration' do
+    let(:project)    { create(:project) }
+    let(:author)     { create(:user) }
+    let(:issue)      { create(:issue, project: project) }
+    let(:mergereq)   { create(:merge_request, :simple, target_project: project, source_project: project) }
+    let(:jira_issue) { JiraIssue.new("JIRA-1", project)}
+    let(:jira_tracker) { project.create_jira_service if project.jira_service.nil? }
+    let(:commit)     { project.commit }
+
+    context 'in JIRA issue tracker' do
+      before do
+        jira_service_settings
+        WebMock.stub_request(:post, jira_api_comment_url)
+      end
+
+      after do
+        jira_tracker.destroy!
+      end
+
+      describe "new reference" do
+        before do
+          WebMock.stub_request(:get, jira_api_comment_url).to_return(body: jira_issue_comments)
+        end
+
+        subject { described_class.cross_reference(jira_issue, commit, author) }
+
+        it { is_expected.to eq(jira_status_message) }
+      end
+
+      describe "existing reference" do
+        before do
+          message = %Q{[#{author.name}|http://localhost/u/#{author.username}] mentioned this issue in [a commit of #{project.path_with_namespace}|http://localhost/#{project.path_with_namespace}/commit/#{commit.id}]:\\n'#{commit.title}'}
+          WebMock.stub_request(:get, jira_api_comment_url).to_return(body: %Q({"comments":[{"body":"#{message}"}]}))
+        end
+
+        subject { described_class.cross_reference(jira_issue, commit, author) }
+        it { is_expected.not_to eq(jira_status_message) }
+      end
+    end
+
+    context 'issue from an issue' do
+      context 'in JIRA issue tracker' do
+        before do
+          jira_service_settings
+          WebMock.stub_request(:post, jira_api_comment_url)
+          WebMock.stub_request(:get, jira_api_comment_url).to_return(body: jira_issue_comments)
+        end
+
+        after do
+          jira_tracker.destroy!
+        end
+
+        subject { described_class.cross_reference(jira_issue, issue, author) }
+
+        it { is_expected.to eq(jira_status_message) }
       end
     end
   end

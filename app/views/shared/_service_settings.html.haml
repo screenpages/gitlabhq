@@ -1,9 +1,4 @@
-- if @service.errors.any?
-  #error_explanation
-    .alert.alert-danger
-      %ul
-        - @service.errors.full_messages.each do |msg|
-          %li= msg
+= form_errors(@service)
 
 - if @service.help.present?
   .well
@@ -50,7 +45,7 @@
             = form.label :issues_events, class: 'list-label' do
               %strong Issues events
             %p.light
-              This url will be triggered when an issue is created
+              This url will be triggered when an issue is created/updated/merged
       - if @service.supported_events.include?("merge_request")
         %div
           = form.check_box :merge_requests_events, class: 'pull-left'
@@ -58,7 +53,24 @@
             = form.label :merge_requests_events, class: 'list-label' do
               %strong Merge Request events
             %p.light
-              This url will be triggered when a merge request is created
+              This url will be triggered when a merge request is created/updated/merged
+      - if @service.supported_events.include?("build")
+        %div
+          = form.check_box :build_events, class: 'pull-left'
+          .prepend-left-20
+            = form.label :build_events, class: 'list-label' do
+              %strong Build events
+            %p.light
+              This url will be triggered when a build status changes
+      - if @service.supported_events.include?("wiki_page")
+        %div
+          = form.check_box :wiki_page_events, class: 'pull-left'
+          .prepend-left-20
+            = form.label :wiki_page_events, class: 'list-label' do
+              %strong Wiki Page events
+            %p.light
+              This url will be triggered when a wiki page is created/updated
+
 
 - @service.fields.each do |field|
   - type = field[:type]

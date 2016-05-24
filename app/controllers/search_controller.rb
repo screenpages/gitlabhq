@@ -1,12 +1,12 @@
 class SearchController < ApplicationController
+  skip_before_action :authenticate_user!, :reject_blocked
+
   include SearchHelper
 
   layout 'search'
 
   def show
     return if params[:search].nil? || params[:search].blank?
-
-    @search_term = params[:search]
 
     if params[:project_id].present?
       @project = Project.find_by(id: params[:project_id])
@@ -18,13 +18,15 @@ class SearchController < ApplicationController
       @group = nil unless can?(current_user, :read_group, @group)
     end
 
+    @search_term = params[:search]
+
     @scope = params[:scope]
     @show_snippets = params[:snippets].eql? 'true'
 
     @search_results =
       if @project
-        unless %w(blobs notes issues merge_requests wiki_blobs).
-          include?(@scope)
+        unless %w(blobs notes issues merge_requests milestones wiki_blobs
+                  commits).include?(@scope)
           @scope = 'blobs'
         end
 
@@ -36,13 +38,13 @@ class SearchController < ApplicationController
 
         Search::SnippetService.new(current_user, params).execute
       else
-        unless %w(projects issues merge_requests).include?(@scope)
+        unless %w(projects issues merge_requests milestones).include?(@scope)
           @scope = 'projects'
         end
         Search::GlobalService.new(current_user, params).execute
       end
 
-    @objects = @search_results.objects(@scope, params[:page])
+    @search_objects = @search_results.objects(@scope, params[:page])
   end
 
   def autocomplete

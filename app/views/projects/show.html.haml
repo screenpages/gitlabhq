@@ -1,20 +1,21 @@
+- @no_container = true
+
 = content_for :meta_tags do
   - if current_user
     = auto_discovery_link_tag(:atom, namespace_project_path(@project.namespace, @project, format: :atom, private_token: current_user.private_token), title: "#{@project.name} activity")
 
-- if current_user && can?(current_user, :download_code, @project)
-  = render 'shared/no_ssh'
-  = render 'shared/no_password'
+= content_for :flash_message do
+  - if current_user && can?(current_user, :download_code, @project)
+    = render 'shared/no_ssh'
+    = render 'shared/no_password'
 
-- if prefer_readme?
-  = render 'projects/last_push'
-
+= render 'projects/last_push'
 = render "home_panel"
 
-.project-stats
-  %ul.nav.nav-pills
+.project-stats.row-content-block.second-block
+  %ul.nav
     %li
-      = link_to namespace_project_commits_path(@project.namespace, @project, @ref || @repository.root_ref) do
+      = link_to namespace_project_commits_path(@project.namespace, @project, current_ref) do
         = pluralize(number_with_delimiter(@project.commit_count), 'commit')
     %li
       = link_to namespace_project_branches_path(@project.namespace, @project) do
@@ -22,40 +23,52 @@
     %li
       = link_to namespace_project_tags_path(@project.namespace, @project) do
         = pluralize(number_with_delimiter(@repository.tag_names.count), 'tag')
+
+    %li
+      = link_to project_files_path(@project) do
+        = repository_size
+
+    - if default_project_view != 'readme' && @repository.readme
+      %li
+        = link_to 'Readme', readme_path(@project)
+
     - if @repository.changelog
       %li
-        = link_to changelog_url(@project) do
-          Changelog
-    - if @repository.license
+        = link_to 'Changelog', changelog_path(@project)
+
+    - if @repository.license_blob
       %li
-        = link_to license_url(@project) do
-          License
+        = link_to license_short_name(@project), license_path(@project)
+
     - if @repository.contribution_guide
       %li
-        = link_to contribution_guide_url(@project) do
-          Contribution guide
+        = link_to 'Contribution guide', contribution_guide_path(@project)
 
-- if @project.archived?
-  .text-warning.center.prepend-top-20
-    %p
-      = icon("exclamation-triangle fw")
-      Archived project! Repository is read-only
+    - if current_user && can_push_branch?(@project, @project.default_branch)
+      - unless @repository.changelog
+        %li.missing
+          = link_to add_special_file_path(@project, file_name: 'CHANGELOG') do
+            Add Changelog
+      - unless @repository.license_blob
+        %li.missing
+          = link_to add_special_file_path(@project, file_name: 'LICENSE') do
+            Add License
+      - unless @repository.contribution_guide
+        %li.missing
+          = link_to add_special_file_path(@project, file_name: 'CONTRIBUTING.md', commit_message: 'Add contribution guide') do
+            Add Contribution guide
 
-%hr
-%section
-  - if prefer_readme?
-    = render 'projects/readme'
-  - else
-    = render 'projects/activity'
+- if @repository.commit
+  .content-block.second-block.white
+    %div{ class: container_class }
+      = render 'projects/last_commit', commit: @repository.commit, project: @project
 
+%div{ class: container_class }
+  - if @project.archived?
+    .text-warning.center.prepend-top-20
+      %p
+        = icon("exclamation-triangle fw")
+        Archived project! Repository is read-only
 
-- if current_user
-  - access = user_max_access_in_project(current_user, @project)
-  - if access
-    %hr
-    %p.light
-      You have #{access} access to this project.
-      - if @project.project_member_by_id(current_user)
-        = link_to leave_namespace_project_project_members_path(@project.namespace, @project),
-          data: { confirm: leave_project_message(@project) }, method: :delete, title: 'Leave project', class: 'cred' do
-          Leave this project
+  %div{class: "project-show-#{default_project_view}"}
+    = render default_project_view

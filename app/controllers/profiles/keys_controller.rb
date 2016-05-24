@@ -3,14 +3,16 @@ class Profiles::KeysController < Profiles::ApplicationController
 
   def index
     @keys = current_user.keys
+    @key = Key.new
   end
 
   def show
     @key = current_user.keys.find(params[:id])
   end
 
+  # Back-compat: We need to support this URL since git-annex webapp points to it
   def new
-    @key = current_user.keys.new
+    redirect_to profile_keys_path
   end
 
   def create
@@ -19,7 +21,8 @@ class Profiles::KeysController < Profiles::ApplicationController
     if @key.save
       redirect_to profile_key_path(@key)
     else
-      render 'new'
+      @keys = current_user.keys.select(&:persisted?)
+      render :index
     end
   end
 
@@ -29,7 +32,7 @@ class Profiles::KeysController < Profiles::ApplicationController
 
     respond_to do |format|
       format.html { redirect_to profile_keys_url }
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 

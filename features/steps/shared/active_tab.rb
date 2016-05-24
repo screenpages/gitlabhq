@@ -6,7 +6,7 @@ module SharedActiveTab
   end
 
   def ensure_active_sub_tab(content)
-    expect(find('div.content ul.nav-tabs li.active')).to have_content(content)
+    expect(find('div.content ul.nav-links li.active')).to have_content(content)
   end
 
   def ensure_active_sub_nav(content)
@@ -18,7 +18,7 @@ module SharedActiveTab
   end
 
   step 'no other sub tabs should be active' do
-    expect(page).to have_selector('div.content ul.nav-tabs li.active', count: 1)
+    expect(page).to have_selector('div.content ul.nav-links li.active', count: 1)
   end
 
   step 'no other sub navs should be active' do
@@ -26,7 +26,7 @@ module SharedActiveTab
   end
 
   step 'the active main tab should be Home' do
-    ensure_active_main_tab('Your Projects')
+    ensure_active_main_tab('Projects')
   end
 
   step 'the active main tab should be Projects' do

@@ -37,7 +37,7 @@ class Spinach::Features::Project < Spinach::FeatureSteps
   step 'I should see new project avatar' do
     expect(@project.avatar).to be_instance_of AvatarUploader
     url = @project.avatar.url
-    expect(url).to eq "/uploads/project/avatar/#{ @project.id }/banana_sample.gif"
+    expect(url).to eq "/uploads/project/avatar/#{@project.id}/banana_sample.gif"
   end
 
   step 'I should see the "Remove avatar" button' do
@@ -86,13 +86,13 @@ class Spinach::Features::Project < Spinach::FeatureSteps
   end
 
   step 'I should see project "Forum" README' do
-    page.within('#README') do
+    page.within('.readme-holder') do
       expect(page).to have_content 'Sample repo for testing gitlab features'
     end
   end
 
   step 'I should see project "Shop" README' do
-    page.within('#README') do
+    page.within('.readme-holder') do
       expect(page).to have_content 'testme'
     end
   end
@@ -124,10 +124,34 @@ class Spinach::Features::Project < Spinach::FeatureSteps
   end
 
   step 'I should see back to dashboard button' do
-    expect(page).to have_content 'Back to Dashboard'
+    expect(page).to have_content 'Go to dashboard'
   end
 
   step 'I should see back to group button' do
-    expect(page).to have_content 'Back to Group'
+    expect(page).to have_content 'Go to group'
+  end
+
+  step 'I click notifications drop down button' do
+    click_link 'notifications-button'
+  end
+
+  step 'I choose Mention setting' do
+    click_link 'On mention'
+  end
+
+  step 'I should see Notification saved message' do
+    page.within '.flash-container' do
+      expect(page).to have_content 'Notification settings saved'
+    end
+  end
+
+  step 'I create bare repo' do
+    click_link 'Create empty bare repository'
+  end
+
+  step 'I should see command line instructions' do
+    page.within ".empty_wrapper" do
+      expect(page).to have_content("Command line instructions")
+    end
   end
 end

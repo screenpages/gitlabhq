@@ -1,48 +1,60 @@
 %header.navbar.navbar-fixed-top.navbar-gitlab{ class: nav_header_class }
-  .container
-    .header-logo
-      = link_to root_path, class: 'home', title: 'Dashboard', id: 'js-shortcuts-home', data: {toggle: 'tooltip', placement: 'bottom'} do
-        = brand_header_logo
-        .icon
-          = brand_header_icon
-        .gitlab-text-container
-          %h3 GitLab
+  %div{ class: fluid_layout ? "container-fluid" : "container-fluid" }
     .header-content
-      %button.navbar-toggle{type: 'button'}
+      %button.side-nav-toggle{type: 'button'}
         %span.sr-only Toggle navigation
         = icon('bars')
+      %button.navbar-toggle{type: 'button'}
+        %span.sr-only Toggle navigation
+        = icon('angle-left')
 
       .navbar-collapse.collapse
-        %ul.nav.navbar-nav.pull-right
+        %ul.nav.navbar-nav
           %li.hidden-sm.hidden-xs
-            = render 'layouts/search'
+            = render 'layouts/search' unless current_controller?(:search)
           %li.visible-sm.visible-xs
-            = link_to search_path, title: 'Search', data: {toggle: 'tooltip', placement: 'bottom'} do
+            = link_to search_path, title: 'Search', data: {toggle: 'tooltip', placement: 'bottom', container: 'body'} do
               = icon('search')
-          %li.hidden-xs
-            = link_to help_path, title: 'Help', data: {toggle: 'tooltip', placement: 'bottom'} do
-              = icon('question-circle fw')
-          %li
-            = link_to explore_root_path, title: 'Explore', data: {toggle: 'tooltip', placement: 'bottom'} do
-              = icon('globe fw')
-          %li
-            = link_to user_snippets_path(current_user), title: 'Your snippets', data: {toggle: 'tooltip', placement: 'bottom'} do
-              = icon('clipboard fw')
-          - if current_user.is_admin?
+          - if current_user
+            - if session[:impersonator_id]
+              %li.impersonation
+                = link_to admin_impersonation_path, method: :delete, title: 'Stop Impersonation', data: { toggle: 'tooltip', placement: 'bottom', container: 'body' } do
+                  = icon('user-secret fw')
+            - if current_user.is_admin?
+              %li
+                = link_to admin_root_path, title: 'Admin Area', data: {toggle: 'tooltip', placement: 'bottom', container: 'body'} do
+                  = icon('wrench fw')
             %li
-              = link_to admin_root_path, title: 'Admin area', data: {toggle: 'tooltip', placement: 'bottom'} do
-                = icon('wrench fw')
-          - if current_user.can_create_project?
-            %li.hidden-xs
-              = link_to new_project_path, title: 'New project', data: {toggle: 'tooltip', placement: 'bottom'} do
-                = icon('plus fw')
-          %li
-            = link_to profile_path, title: 'Profile settings', data: {toggle: 'tooltip', placement: 'bottom'} do
-              = icon('cog fw')
-          %li
-            = link_to destroy_user_session_path, class: 'logout', method: :delete, title: 'Sign out', data: {toggle: 'tooltip', placement: 'bottom'} do
-              = icon('sign-out')
+              = link_to dashboard_todos_path, title: 'Todos', data: {toggle: 'tooltip', placement: 'bottom', container: 'body'} do
+                = icon('bell fw')
+                - unless todos_pending_count == 0
+                  %span.badge.todos-pending-count
+                    = todos_pending_count
+            - if current_user.can_create_project?
+              %li
+                = link_to new_project_path, title: 'New project', data: {toggle: 'tooltip', placement: 'bottom', container: 'body'} do
+                  = icon('plus fw')
+            - if Gitlab::Sherlock.enabled?
+              %li
+                = link_to sherlock_transactions_path, title: 'Sherlock Transactions',
+                  data: {toggle: 'tooltip', placement: 'bottom', container: 'body'} do
+                  = icon('tachometer fw')
+            %li
+              = link_to destroy_user_session_path, class: 'logout', method: :delete, title: 'Sign out', data: {toggle: 'tooltip', placement: 'bottom', container: 'body'} do
+                = icon('sign-out')
+          - else
+            %li
+              %div
+                = link_to "Sign in", new_session_path(:user, redirect_to_referer: 'yes'), class: 'btn btn-sign-in btn-success'
+
 
       %h1.title= title
 
+      = yield :header_content
+
 = render 'shared/outdated_browser'
+
+- if @project && !@project.empty_repo?
+  - if ref = @ref || @project.repository.root_ref
+    :javascript
+      var findFileURL = "#{namespace_project_find_file_path(@project.namespace, @project, ref)}";

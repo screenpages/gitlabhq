@@ -21,7 +21,7 @@ module Gitlab
     #
     # Returns boolean
     def gitlab_markdown?(filename)
-      filename.downcase.end_with?(*%w(.mdown .md .markdown))
+      filename.downcase.end_with?(*%w(.mdown .mkd .mkdn .md .markdown))
     end
 
     # Public: Determines if the given filename has AsciiDoc extension.
@@ -40,7 +40,7 @@ module Gitlab
     # Returns boolean
     def plain?(filename)
       filename.downcase.end_with?('.txt') ||
-        filename.downcase == 'readme'
+        filename.casecmp('readme').zero?
     end
 
     def previewable?(filename)

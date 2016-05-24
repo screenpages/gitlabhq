@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe SlackService::NoteMessage do
+describe SlackService::NoteMessage, models: true do
   let(:color) { '#345' }
 
   before do
@@ -63,9 +63,9 @@ describe SlackService::NoteMessage do
     it 'returns a message regarding notes on a merge request' do
       message = SlackService::NoteMessage.new(@args)
       expect(message.pretext).to eq("Test User commented on " \
-      "<url|merge request #30> in <somewhere.com|project_name>: " \
+      "<url|merge request !30> in <somewhere.com|project_name>: " \
       "*merge request title*")
-      expected_attachments =  [
+      expected_attachments = [
           {
               text: "comment on a merge request",
               color: color,
@@ -89,10 +89,10 @@ describe SlackService::NoteMessage do
     it 'returns a message regarding notes on an issue' do
       message = SlackService::NoteMessage.new(@args)
       expect(message.pretext).to eq(
-                                     "Test User commented on " \
-      "<url|issue #20> in <somewhere.com|project_name>: " \
-      "*issue title*")
-      expected_attachments =  [
+        "Test User commented on " \
+        "<url|issue #20> in <somewhere.com|project_name>: " \
+        "*issue title*")
+      expected_attachments = [
           {
               text: "comment on an issue",
               color: color,
@@ -117,7 +117,7 @@ describe SlackService::NoteMessage do
       expect(message.pretext).to eq("Test User commented on " \
       "<url|snippet #5> in <somewhere.com|project_name>: " \
       "*snippet title*")
-      expected_attachments =  [
+      expected_attachments = [
           {
               text: "comment on a snippet",
               color: color,

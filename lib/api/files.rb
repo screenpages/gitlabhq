@@ -7,7 +7,7 @@ module API
       def commit_params(attrs)
         {
           file_path: attrs[:file_path],
-          current_branch: attrs[:branch_name],
+          source_branch: attrs[:branch_name],
           target_branch: attrs[:branch_name],
           commit_message: attrs[:commit_message],
           file_content: attrs[:content],
@@ -43,7 +43,8 @@ module API
       #   "content": "IyA9PSBTY2hlbWEgSW5mb3...",
       #   "ref": "master",
       #   "blob_id": "79f7bbd25901e8334750839545a9bd021f0e4c83",
-      #   "commit_id": "d5a3ff139356ce33e37e73add446f16869741b50"
+      #   "commit_id": "d5a3ff139356ce33e37e73add446f16869741b50",
+      #   "last_commit_id": "570e7b2abdd848b95f2f578043fc23bd6f6fd24d",
       # }
       #
       get ":id/repository/files" do
@@ -57,9 +58,11 @@ module API
         commit = user_project.commit(ref)
         not_found! 'Commit' unless commit
 
-        blob = user_project.repository.blob_at(commit.sha, file_path)
+        repo = user_project.repository
+        blob = repo.blob_at(commit.sha, file_path)
 
         if blob
+          blob.load_all_data!(repo)
           status(200)
 
           {
@@ -67,10 +70,11 @@ module API
             file_path: blob.path,
             size: blob.size,
             encoding: "base64",
-            content: Base64.encode64(blob.data),
+            content: Base64.strict_encode64(blob.data),
             ref: ref,
             blob_id: blob.id,
             commit_id: commit.id,
+            last_commit_id: repo.last_commit_for_path(commit.sha, file_path).id
           }
         else
           not_found! 'File'

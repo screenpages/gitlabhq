@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe Issues::BulkUpdateService do
+describe Issues::BulkUpdateService, services: true do
   let(:issue) { create(:issue, project: @project) }
 
   before do
@@ -100,7 +100,7 @@ describe Issues::BulkUpdateService do
   describe :update_milestone do
 
     before do
-      @milestone = create :milestone
+      @milestone = create(:milestone, project: @project)
       @params = {
         issues_ids: [issue.id],
         milestone_id: @milestone.id

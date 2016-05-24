@@ -18,7 +18,7 @@
 
 require "spec_helper"
 
-describe ServiceHook do
+describe ServiceHook, models: true do
   describe "Associations" do
     it { is_expected.to belong_to :service }
   end
@@ -31,19 +31,17 @@ describe ServiceHook do
       WebMock.stub_request(:post, @service_hook.url)
     end
 
-    it "POSTs to the web hook URL" do
+    it "POSTs to the webhook URL" do
       @service_hook.execute(@data)
       expect(WebMock).to have_requested(:post, @service_hook.url).with(
-        headers: { 'Content-Type'=>'application/json', 'X-Gitlab-Event'=>'Service Hook' }
+        headers: { 'Content-Type' => 'application/json', 'X-Gitlab-Event' => 'Service Hook' }
       ).once
     end
 
     it "POSTs the data as JSON" do
-      json = @data.to_json
-
       @service_hook.execute(@data)
       expect(WebMock).to have_requested(:post, @service_hook.url).with(
-        headers: { 'Content-Type'=>'application/json', 'X-Gitlab-Event'=>'Service Hook' }
+        headers: { 'Content-Type' => 'application/json', 'X-Gitlab-Event' => 'Service Hook' }
       ).once
     end
 

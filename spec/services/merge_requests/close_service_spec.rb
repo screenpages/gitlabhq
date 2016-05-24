@@ -1,10 +1,11 @@
 require 'spec_helper'
 
-describe MergeRequests::CloseService do
+describe MergeRequests::CloseService, services: true do
   let(:user) { create(:user) }
   let(:user2) { create(:user) }
   let(:merge_request) { create(:merge_request, assignee: user2) }
   let(:project) { merge_request.project }
+  let!(:todo) { create(:todo, :assigned, user: user, project: project, target: merge_request, author: user2) }
 
   before do
     project.team << [user, :master]
@@ -18,7 +19,9 @@ describe MergeRequests::CloseService do
       before do
         allow(service).to receive(:execute_hooks)
 
-        @merge_request = service.execute(merge_request)
+        perform_enqueued_jobs do
+          @merge_request = service.execute(merge_request)
+        end
       end
 
       it { expect(@merge_request).to be_valid }
@@ -38,6 +41,10 @@ describe MergeRequests::CloseService do
       it 'should create system note about merge_request reassign' do
         note = @merge_request.notes.last
         expect(note.note).to include 'Status changed to closed'
+      end
+
+      it 'marks todos as done' do
+        expect(todo.reload).to be_done
       end
     end
   end

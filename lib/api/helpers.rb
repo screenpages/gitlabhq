@@ -1,8 +1,8 @@
 module API
-  module APIHelpers
+  module Helpers
     PRIVATE_TOKEN_HEADER = "HTTP_PRIVATE_TOKEN"
     PRIVATE_TOKEN_PARAM = :private_token
-    SUDO_HEADER ="HTTP_SUDO"
+    SUDO_HEADER = "HTTP_SUDO"
     SUDO_PARAM = :sudo
 
     def parse_boolean(value)
@@ -30,7 +30,7 @@ module API
     end
 
     def sudo_identifier()
-      identifier ||= params[SUDO_PARAM] ||= env[SUDO_HEADER]
+      identifier ||= params[SUDO_PARAM] || env[SUDO_HEADER]
 
       # Regex for integers
       if !!(identifier =~ /^[0-9]+$/)
@@ -55,6 +55,32 @@ module API
       end
     end
 
+    def project_service
+      @project_service ||= begin
+        underscored_service = params[:service_slug].underscore
+
+        if Service.available_services_names.include?(underscored_service)
+          user_project.build_missing_services
+
+          service_method = "#{underscored_service}_service"
+
+          send_service(service_method)
+        end
+      end
+
+      @project_service || not_found!("Service")
+    end
+
+    def send_service(service_method)
+      user_project.send(service_method)
+    end
+
+    def service_attributes
+      @service_attributes ||= project_service.fields.inject([]) do |arr, hash|
+        arr << hash[:name].to_sym
+      end
+    end
+
     def find_group(id)
       begin
         group = Group.find(id)
@@ -65,17 +91,25 @@ module API
       if can?(current_user, :read_group, group)
         group
       else
-        forbidden!("#{current_user.username} lacks sufficient "\
-        "access to #{group.name}")
+        not_found!('Group')
       end
     end
 
-    def paginate(relation)
-      per_page  = params[:per_page].to_i
-      paginated = relation.page(params[:page]).per(per_page)
-      add_pagination_headers(paginated, per_page)
+    def find_project_label(id)
+      label = user_project.labels.find_by_id(id) || user_project.labels.find_by_title(id)
+      label || not_found!('Label')
+    end
 
-      paginated
+    def find_project_issue(id)
+      issue = user_project.issues.find(id)
+      not_found! unless can?(current_user, :read_issue, issue)
+      issue
+    end
+
+    def paginate(relation)
+      relation.page(params[:page]).per(params[:per_page].to_i).tap do |data|
+        add_pagination_headers(data)
+      end
     end
 
     def authenticate!
@@ -94,9 +128,7 @@ module API
     end
 
     def authorize!(action, subject)
-      unless abilities.allowed?(current_user, action, subject)
-        forbidden!
-      end
+      forbidden! unless abilities.allowed?(current_user, action, subject)
     end
 
     def authorize_push_project
@@ -105,6 +137,12 @@ module API
 
     def authorize_admin_project
       authorize! :admin_project, user_project
+    end
+
+    def require_gitlab_workhorse!
+      unless env['HTTP_GITLAB_WORKHORSE'].present?
+        forbidden!('Request should be executed via GitLab Workhorse')
+      end
     end
 
     def can?(object, action, subject)
@@ -122,15 +160,14 @@ module API
       end
     end
 
-    def attributes_for_keys(keys)
+    def attributes_for_keys(keys, custom_params = nil)
+      params_hash = custom_params || params
       attrs = {}
-
       keys.each do |key|
-        if params[key].present? or (params.has_key?(key) and params[key] == false)
-          attrs[key] = params[key]
+        if params_hash[key].present? or (params_hash.has_key?(key) and params_hash[key] == false)
+          attrs[key] = params_hash[key]
         end
       end
-
       ActionController::Parameters.new(attrs).permit!
     end
 
@@ -155,6 +192,22 @@ module API
 
     def validate_access_level?(level)
       Gitlab::Access.options_with_owner.values.include? level.to_i
+    end
+
+    # Checks the occurrences of datetime attributes, each attribute if present in the params hash must be in ISO 8601
+    # format (YYYY-MM-DDTHH:MM:SSZ) or a Bad Request error is invoked.
+    #
+    # Parameters:
+    #   keys (required) - An array consisting of elements that must be parseable as dates from the params hash
+    def datetime_attributes!(*keys)
+      keys.each do |key|
+        begin
+          params[key] = Time.xmlschema(params[key]) if params[key].present?
+        rescue ArgumentError
+          message = "\"" + key.to_s + "\" must be a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ"
+          render_api_error!(message, 400)
+        end
+      end
     end
 
     def issuable_order_by
@@ -210,6 +263,14 @@ module API
       render_api_error!(message || '409 Conflict', 409)
     end
 
+    def file_to_large!
+      render_api_error!('413 Request Entity Too Large', 413)
+    end
+
+    def not_modified!
+      render_api_error!('304 Not Modified', 304)
+    end
+
     def render_validation_error!(model)
       if model.errors.any?
         render_api_error!(model.errors.messages || '400 Bad Request', 400)
@@ -220,18 +281,115 @@ module API
       error!({ 'message' => message }, status)
     end
 
+    # Projects helpers
+
+    def filter_projects(projects)
+      # If the archived parameter is passed, limit results accordingly
+      if params[:archived].present?
+        projects = projects.where(archived: parse_boolean(params[:archived]))
+      end
+
+      if params[:search].present?
+        projects = projects.search(params[:search])
+      end
+
+      if params[:visibility].present?
+        projects = projects.search_by_visibility(params[:visibility])
+      end
+
+      projects.reorder(project_order_by => project_sort)
+    end
+
+    def project_order_by
+      order_fields = %w(id name path created_at updated_at last_activity_at)
+
+      if order_fields.include?(params['order_by'])
+        params['order_by']
+      else
+        'created_at'
+      end
+    end
+
+    def project_sort
+      if params["sort"] == 'asc'
+        :asc
+      else
+        :desc
+      end
+    end
+
+    # file helpers
+
+    def uploaded_file(field, uploads_path)
+      if params[field]
+        bad_request!("#{field} is not a file") unless params[field].respond_to?(:filename)
+        return params[field]
+      end
+
+      return nil unless params["#{field}.path"] && params["#{field}.name"]
+
+      # sanitize file paths
+      # this requires all paths to exist
+      required_attributes! %W(#{field}.path)
+      uploads_path = File.realpath(uploads_path)
+      file_path = File.realpath(params["#{field}.path"])
+      bad_request!('Bad file path') unless file_path.start_with?(uploads_path)
+
+      UploadedFile.new(
+        file_path,
+        params["#{field}.name"],
+        params["#{field}.type"] || 'application/octet-stream',
+      )
+    end
+
+    def present_file!(path, filename, content_type = 'application/octet-stream')
+      filename ||= File.basename(path)
+      header['Content-Disposition'] = "attachment; filename=#{filename}"
+      header['Content-Transfer-Encoding'] = 'binary'
+      content_type content_type
+
+      # Support download acceleration
+      case headers['X-Sendfile-Type']
+      when 'X-Sendfile'
+        header['X-Sendfile'] = path
+        body
+      else
+        file FileStreamer.new(path)
+      end
+    end
+
     private
 
-    def add_pagination_headers(paginated, per_page)
+    def add_pagination_headers(paginated_data)
+      header 'X-Total',       paginated_data.total_count.to_s
+      header 'X-Total-Pages', paginated_data.total_pages.to_s
+      header 'X-Per-Page',    paginated_data.limit_value.to_s
+      header 'X-Page',        paginated_data.current_page.to_s
+      header 'X-Next-Page',   paginated_data.next_page.to_s
+      header 'X-Prev-Page',   paginated_data.prev_page.to_s
+      header 'Link',          pagination_links(paginated_data)
+    end
+
+    def pagination_links(paginated_data)
       request_url = request.url.split('?').first
+      request_params = params.clone
+      request_params[:per_page] = paginated_data.limit_value
 
       links = []
-      links << %(<#{request_url}?page=#{paginated.current_page - 1}&per_page=#{per_page}>; rel="prev") unless paginated.first_page?
-      links << %(<#{request_url}?page=#{paginated.current_page + 1}&per_page=#{per_page}>; rel="next") unless paginated.last_page?
-      links << %(<#{request_url}?page=1&per_page=#{per_page}>; rel="first")
-      links << %(<#{request_url}?page=#{paginated.total_pages}&per_page=#{per_page}>; rel="last")
 
-      header 'Link', links.join(', ')
+      request_params[:page] = paginated_data.current_page - 1
+      links << %(<#{request_url}?#{request_params.to_query}>; rel="prev") unless paginated_data.first_page?
+
+      request_params[:page] = paginated_data.current_page + 1
+      links << %(<#{request_url}?#{request_params.to_query}>; rel="next") unless paginated_data.last_page?
+
+      request_params[:page] = 1
+      links << %(<#{request_url}?#{request_params.to_query}>; rel="first")
+
+      request_params[:page] = paginated_data.total_pages
+      links << %(<#{request_url}?#{request_params.to_query}>; rel="last")
+
+      links.join(', ')
     end
 
     def abilities

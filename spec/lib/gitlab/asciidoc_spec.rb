@@ -2,7 +2,7 @@ require 'spec_helper'
 require 'nokogiri'
 
 module Gitlab
-  describe Asciidoc do
+  describe Asciidoc, lib: true do
 
     let(:input) { '<b>ascii</b>' }
     let(:context) { {} }
@@ -39,22 +39,6 @@ module Gitlab
 
           render(input, context, asciidoc_opts)
         end
-      end
-    end
-
-    context "with project in context" do
-
-      let(:context) { { project: create(:project) } }
-
-      it "should filter converted input via HTML pipeline and return result" do
-        filtered_html = '<b>ASCII</b>'
-
-        allow(Asciidoctor).to receive(:convert).and_return(html)
-        expect_any_instance_of(HTML::Pipeline).to receive(:call)
-          .with(html, context)
-          .and_return(output: Nokogiri::HTML.fragment(filtered_html))
-
-        expect( render('foo', context) ).to eql filtered_html
       end
     end
 

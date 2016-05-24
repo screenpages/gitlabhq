@@ -2,26 +2,21 @@ class Commit
   extend ActiveModel::Naming
 
   include ActiveModel::Conversion
-  include Mentionable
   include Participable
+  include Mentionable
   include Referable
   include StaticModel
 
-  attr_mentionable :safe_message
-  participant :author, :committer, :notes, :mentioned_users
+  attr_mentionable :safe_message, pipeline: :single_line
+  participant :author, :committer, :notes
 
   attr_accessor :project
 
-  # Safe amount of changes (files and lines) in one commit to render
-  # Used to prevent 500 error on huge commits by suppressing diff
-  #
-  # User can force display of diff above this size
-  DIFF_SAFE_FILES  = 100 unless defined?(DIFF_SAFE_FILES)
-  DIFF_SAFE_LINES  = 5000 unless defined?(DIFF_SAFE_LINES)
+  DIFF_SAFE_LINES = Gitlab::Git::DiffCollection::DEFAULT_LIMITS[:max_lines]
 
   # Commits above this size will not be rendered in HTML
-  DIFF_HARD_LIMIT_FILES = 1000 unless defined?(DIFF_HARD_LIMIT_FILES)
-  DIFF_HARD_LIMIT_LINES = 50000 unless defined?(DIFF_HARD_LIMIT_LINES)
+  DIFF_HARD_LIMIT_FILES = 1000
+  DIFF_HARD_LIMIT_LINES = 50000
 
   class << self
     def decorate(commits, project)
@@ -36,12 +31,19 @@ class Commit
 
     # Calculate number of lines to render for diffs
     def diff_line_count(diffs)
-      diffs.reduce(0) { |sum, d| sum + d.diff.lines.count }
+      diffs.reduce(0) { |sum, d| sum + Gitlab::Git::Util.count_lines(d.diff) }
     end
 
     # Truncate sha to 8 characters
     def truncate_sha(sha)
       sha[0..7]
+    end
+
+    def max_diff_options
+      {
+        max_files: DIFF_HARD_LIMIT_FILES,
+        max_lines: DIFF_HARD_LIMIT_LINES,
+      }
     end
   end
 
@@ -68,21 +70,33 @@ class Commit
 
   # Pattern used to extract commit references from text
   #
-  # The SHA can be between 6 and 40 hex characters.
+  # The SHA can be between 7 and 40 hex characters.
   #
   # This pattern supports cross-project references.
   def self.reference_pattern
-    %r{
+    @reference_pattern ||= %r{
       (?:#{Project.reference_pattern}#{reference_prefix})?
-      (?<commit>\h{6,40})
+      (?<commit>\h{7,40})
     }x
+  end
+
+  def self.link_reference_pattern
+    @link_reference_pattern ||= super("commit", /(?<commit>\h{7,40})/)
   end
 
   def to_reference(from_project = nil)
     if cross_project_reference?(from_project)
-      "#{project.to_reference}@#{id}"
+      project.to_reference + self.class.reference_prefix + self.id
     else
-      id
+      self.id
+    end
+  end
+
+  def reference_link_text(from_project = nil)
+    if cross_project_reference?(from_project)
+      project.to_reference + self.class.reference_prefix + self.short_id
+    else
+      self.short_id
     end
   end
 
@@ -135,19 +149,23 @@ class Commit
     description.present?
   end
 
-  def hook_attrs
-    path_with_namespace = project.path_with_namespace
-
-    {
+  def hook_attrs(with_changed_files: false)
+    data = {
       id: id,
       message: safe_message,
       timestamp: committed_date.xmlschema,
-      url: "#{Gitlab.config.gitlab.url}/#{path_with_namespace}/commit/#{id}",
+      url: Gitlab::UrlBuilder.build(self),
       author: {
         name: author_name,
         email: author_email
       }
     }
+
+    if with_changed_files
+      data.merge!(repo_changes)
+    end
+
+    data
   end
 
   # Discover issues should be closed when this commit is pushed to a project's
@@ -157,11 +175,19 @@ class Commit
   end
 
   def author
-    @author ||= User.find_by_any_email(author_email)
+    @author ||= User.find_by_any_email(author_email.downcase)
   end
 
   def committer
-    @committer ||= User.find_by_any_email(committer_email)
+    @committer ||= User.find_by_any_email(committer_email.downcase)
+  end
+
+  def parents
+    @parents ||= parent_ids.map { |id| project.commit(id) }
+  end
+
+  def parent
+    @parent ||= project.commit(self.parent_id) if self.parent_id
   end
 
   def notes
@@ -181,7 +207,76 @@ class Commit
     @raw.short_id(7)
   end
 
-  def parents
-    @parents ||= Commit.decorate(super, project)
+  def ci_commits
+    @ci_commits ||= project.ci_commits.where(sha: sha)
+  end
+
+  def status
+    return @status if defined?(@status)
+    @status ||= ci_commits.status
+  end
+
+  def revert_branch_name
+    "revert-#{short_id}"
+  end
+  
+  def cherry_pick_branch_name
+    project.repository.next_branch("cherry-pick-#{short_id}", mild: true)
+  end
+
+  def revert_description
+    if merged_merge_request
+      "This reverts merge request #{merged_merge_request.to_reference}"
+    else
+      "This reverts commit #{sha}"
+    end
+  end
+
+  def revert_message
+    %Q{Revert "#{title.strip}"\n\n#{revert_description}}
+  end
+
+  def reverts_commit?(commit)
+    description? && description.include?(commit.revert_description)
+  end
+
+  def merge_commit?
+    parents.size > 1
+  end
+
+  def merged_merge_request
+    return @merged_merge_request if defined?(@merged_merge_request)
+
+    @merged_merge_request = project.merge_requests.find_by(merge_commit_sha: id) if merge_commit?
+  end
+
+  def has_been_reverted?(current_user = nil, noteable = self)
+    Gitlab::ReferenceExtractor.lazily do
+      noteable.notes.system.flat_map do |note|
+        note.all_references(current_user).commits
+      end
+    end.any? { |commit_ref| commit_ref.reverts_commit?(self) }
+  end
+
+  def change_type_title
+    merged_merge_request ? 'merge request' : 'commit'
+  end
+
+  private
+
+  def repo_changes
+    changes = { added: [], modified: [], removed: [] }
+
+    diffs.each do |diff|
+      if diff.deleted_file
+        changes[:removed] << diff.old_path
+      elsif diff.renamed_file || diff.new_file
+        changes[:added] << diff.new_path
+      else
+        changes[:modified] << diff.new_path
+      end
+    end
+
+    changes
   end
 end

@@ -1,7 +1,52 @@
 require 'sidekiq/web'
+require 'sidekiq/cron/web'
 require 'api/api'
 
-Gitlab::Application.routes.draw do
+Rails.application.routes.draw do
+  if Gitlab::Sherlock.enabled?
+    namespace :sherlock do
+      resources :transactions, only: [:index, :show] do
+        resources :queries, only: [:show]
+        resources :file_samples, only: [:show]
+
+        collection do
+          delete :destroy_all
+        end
+      end
+    end
+  end
+
+  if Rails.env.development?
+    # Make the built-in Rails routes available in development, otherwise they'd
+    # get swallowed by the `namespace/project` route matcher below.
+    #
+    # See https://git.io/va79N
+    get '/rails/mailers'         => 'rails/mailers#index'
+    get '/rails/mailers/:path'   => 'rails/mailers#preview'
+    get '/rails/info/properties' => 'rails/info#properties'
+    get '/rails/info/routes'     => 'rails/info#routes'
+    get '/rails/info'            => 'rails/info#index'
+
+    mount LetterOpenerWeb::Engine, at: '/rails/letter_opener'
+  end
+
+  namespace :ci do
+    # CI API
+    Ci::API::API.logger Rails.logger
+    mount Ci::API::API => '/api'
+
+    resource :lint, only: [:show, :create]
+
+    resources :projects do
+      member do
+        get :status, to: 'projects#badge'
+        get :integration
+      end
+    end
+
+    root to: 'projects#index'
+  end
+
   use_doorkeeper do
     controllers applications: 'oauth/applications',
                 authorized_applications: 'oauth/authorized_applications',
@@ -12,36 +57,36 @@ Gitlab::Application.routes.draw do
   get '/autocomplete/users' => 'autocomplete#users'
   get '/autocomplete/users/:id' => 'autocomplete#user'
 
+  # Emojis
+  resources :emojis, only: :index
 
   # Search
   get 'search' => 'search#show'
   get 'search/autocomplete' => 'search#autocomplete', as: :search_autocomplete
 
+  # JSON Web Token
+  get 'jwt/auth' => 'jwt#auth'
+
   # API
   API::API.logger Rails.logger
   mount API::API => '/api'
-
-  # Get all keys of user
-  get ':username.keys' => 'profiles/keys#get_keys' , constraints: { username: /.*/ }
 
   constraint = lambda { |request| request.env['warden'].authenticate? and request.env['warden'].user.admin? }
   constraints constraint do
     mount Sidekiq::Web, at: '/admin/sidekiq', as: :sidekiq
   end
 
+  # Health check
+  get 'health_check(/:checks)' => 'health_check#index', as: :health_check
+
   # Enable Grack support
-  mount Grack::Bundle.new({
-    git_path:     Gitlab.config.git.bin_path,
-    project_root: Gitlab.config.gitlab_shell.repos_path,
-    upload_pack:  Gitlab.config.gitlab_shell.upload_pack,
-    receive_pack: Gitlab.config.gitlab_shell.receive_pack
-  }), at: '/', constraints: lambda { |request| /[-\/\w\.]+\.git\//.match(request.path_info) }, via: [:get, :post]
+  mount Grack::AuthSpawner, at: '/', constraints: lambda { |request| /[-\/\w\.]+\.git\//.match(request.path_info) }, via: [:get, :post, :put]
 
   # Help
   get 'help'                  => 'help#index'
   get 'help/:category/:file'  => 'help#show', as: :help_page, constraints: { category: /.*/, file: /[^\/\.]+/ }
   get 'help/shortcuts'
-  get 'help/ui'               => 'help#ui'
+  get 'help/ui' => 'help#ui'
 
   #
   # Global snippets
@@ -52,7 +97,8 @@ Gitlab::Application.routes.draw do
     end
   end
 
-  get '/s/:username' => 'snippets#index', as: :user_snippets, constraints: { username: /.*/ }
+  get '/s/:username', to: redirect('/u/%{username}/snippets'),
+                      constraints: { username: /[a-zA-Z.0-9_\-]+(?<!\.atom)/ }
 
   #
   # Invites
@@ -64,6 +110,15 @@ Gitlab::Application.routes.draw do
       match :decline, via: [:get, :post]
     end
   end
+
+  resources :sent_notifications, only: [], constraints: { id: /\h{32}/ } do
+    member do
+      get :unsubscribe
+    end
+  end
+
+  # Spam reports
+  resources :abuse_reports, only: [:new, :create]
 
   #
   # Import
@@ -101,6 +156,15 @@ Gitlab::Application.routes.draw do
       get   :new_user_map,    path: :user_map
       post  :create_user_map, path: :user_map
     end
+
+    resource :fogbugz, only: [:create, :new], controller: :fogbugz do
+      get :status
+      post :callback
+      get :jobs
+
+      get   :new_user_map,    path: :user_map
+      post  :create_user_map, path: :user_map
+    end
   end
 
   #
@@ -112,6 +176,11 @@ Gitlab::Application.routes.draw do
     get ":model/:mounted_as/:id/:filename",
         to:           "uploads#show",
         constraints:  { model: /note|user|group|project/, mounted_as: /avatar|attachment/, filename: /[^\/]+/ }
+
+    # Appearance
+    get ":model/:mounted_as/:id/:filename",
+        to:           "uploads#show",
+        constraints:  { model: /appearance/, mounted_as: /logo|header_logo/, filename: /.+/ }
 
     # Project markdown uploads
     get ":namespace_id/:project_id/:secret/:filename",
@@ -136,6 +205,7 @@ Gitlab::Application.routes.draw do
     end
 
     resources :groups, only: [:index]
+    resources :snippets, only: [:index]
     root to: 'projects#trending'
   end
 
@@ -149,7 +219,7 @@ Gitlab::Application.routes.draw do
   namespace :admin do
     resources :users, constraints: { id: /[a-zA-Z.\/0-9_\-]+/ } do
       resources :keys, only: [:show, :destroy]
-      resources :identities, only: [:index, :edit, :update, :destroy]
+      resources :identities, except: [:show]
 
       member do
         get :projects
@@ -159,10 +229,17 @@ Gitlab::Application.routes.draw do
         put :block
         put :unblock
         put :unlock
+        put :confirm
+        post :impersonate
         patch :disable_two_factor
         delete 'remove/:email_id', action: 'remove_email', as: 'remove_email'
       end
     end
+
+    resource :impersonation, only: :destroy
+
+    resources :abuse_reports, only: [:index, :destroy]
+    resources :spam_logs, only: [:index, :destroy]
 
     resources :applications
 
@@ -178,8 +255,12 @@ Gitlab::Application.routes.draw do
       get :test
     end
 
-    resources :broadcast_messages, only: [:index, :create, :destroy]
+    resources :broadcast_messages, only: [:index, :edit, :create, :update, :destroy] do
+      post :preview, on: :collection
+    end
+
     resource :logs, only: [:show]
+    resource :health_check, controller: 'health_check', only: [:show]
     resource :background_jobs, controller: 'background_jobs', only: [:show]
 
     resources :namespaces, path: '/projects', constraints: { id: /[a-zA-Z.0-9_\-]+/ }, only: [] do
@@ -193,12 +274,41 @@ Gitlab::Application.routes.draw do
 
         member do
           put :transfer
+          post :repository_check
         end
+
+        resources :runner_projects
+      end
+    end
+
+    resource :appearances, path: 'appearance' do
+      member do
+        get :preview
+        delete :logo
+        delete :header_logos
       end
     end
 
     resource :application_settings, only: [:show, :update] do
       resources :services
+      put :reset_runners_token
+      put :reset_health_check_token
+      put :clear_repository_check_states
+    end
+
+    resources :labels
+
+    resources :runners, only: [:index, :show, :update, :destroy] do
+      member do
+        get :resume
+        get :pause
+      end
+    end
+
+    resources :builds, only: :index do
+      collection do
+        post :cancel_all
+      end
     end
 
     root to: 'dashboard#index'
@@ -210,7 +320,7 @@ Gitlab::Application.routes.draw do
   resource :profile, only: [:show, :update] do
     member do
       get :audit_log
-      get :applications
+      get :applications, to: 'oauth/applications#index'
 
       put :reset_private_token
       put :update_username
@@ -235,40 +345,54 @@ Gitlab::Application.routes.draw do
       resource :two_factor_auth, only: [:new, :create, :destroy] do
         member do
           post :codes
+          patch :skip
         end
       end
     end
   end
 
-  get 'u/:username/calendar' => 'users#calendar', as: :user_calendar,
-      constraints: { username: /.*/ }
-
-  get 'u/:username/calendar_activities' => 'users#calendar_activities', as: :user_calendar_activities,
-      constraints: { username: /.*/ }
-
-  get '/u/:username' => 'users#show', as: :user,
-      constraints: { username: /[a-zA-Z.0-9_\-]+(?<!\.atom)/ }
+  scope(path: 'u/:username',
+        as: :user,
+        constraints: { username: /[a-zA-Z.0-9_\-]+(?<!\.atom)/ },
+        controller: :users) do
+    get :calendar
+    get :calendar_activities
+    get :groups
+    get :projects
+    get :contributed, as: :contributed_projects
+    get :snippets
+    get '/', action: :show
+  end
 
   #
   # Dashboard Area
   #
-  resource :dashboard, controller: 'dashboard', only: [:show] do
-    member do
-      get :issues
-      get :merge_requests
-    end
+  resource :dashboard, controller: 'dashboard', only: [] do
+    get :issues
+    get :merge_requests
+    get :activity
 
     scope module: :dashboard do
       resources :milestones, only: [:index, :show]
+      resources :labels, only: [:index]
 
       resources :groups, only: [:index]
+      resources :snippets, only: [:index]
 
-      resources :projects, only: [] do
+      resources :todos, only: [:index, :destroy] do
+        collection do
+          delete :destroy_all
+        end
+      end
+
+      resources :projects, only: [:index] do
         collection do
           get :starred
         end
       end
     end
+
+    root to: "dashboard/projects#index"
   end
 
   #
@@ -279,6 +403,7 @@ Gitlab::Application.routes.draw do
       get :issues
       get :merge_requests
       get :projects
+      get :activity
     end
 
     scope module: :groups do
@@ -288,19 +413,21 @@ Gitlab::Application.routes.draw do
       end
 
       resource :avatar, only: [:destroy]
-      resources :milestones, only: [:index, :show, :update]
+      resources :milestones, constraints: { id: /[^\/]+/ }, only: [:index, :show, :update, :new, :create]
+      resource :notification_setting, only: [:update]
     end
   end
 
-  resources :projects, constraints: { id: /[^\/]+/ }, only: [:new, :create]
+  resources :projects, constraints: { id: /[^\/]+/ }, only: [:index, :new, :create]
 
   devise_for :users, controllers: { omniauth_callbacks: :omniauth_callbacks, registrations: :registrations , passwords: :passwords, sessions: :sessions, confirmations: :confirmations }
 
   devise_scope :user do
     get '/users/auth/:provider/omniauth_error' => 'omniauth_callbacks#omniauth_error', as: :omniauth_error
+    get '/users/almost_there' => 'confirmations#almost_there'
   end
 
-  root to: "root#show"
+  root to: "root#index"
 
   #
   # Project Area
@@ -310,8 +437,10 @@ Gitlab::Application.routes.draw do
               [:new, :create, :index], path: "/") do
       member do
         put :transfer
+        delete :remove_fork
         post :archive
         post :unarchive
+        post :housekeeping
         post :toggle_star
         post :markdown_preview
         get :autocomplete_sources
@@ -344,6 +473,16 @@ Gitlab::Application.routes.draw do
             to: 'blob#destroy',
             constraints: { id: /.+/, format: false }
           )
+          put(
+            '/blob/*id',
+            to: 'blob#update',
+            constraints: { id: /.+/, format: false }
+          )
+          post(
+            '/blob/*id',
+            to: 'blob#create',
+            constraints: { id: /.+/, format: false }
+          )
         end
 
         scope do
@@ -366,6 +505,33 @@ Gitlab::Application.routes.draw do
 
         scope do
           get(
+            '/find_file/*id',
+            to: 'find_file#show',
+            constraints: { id: /.+/, format: /html/ },
+            as: :find_file
+          )
+        end
+
+        scope do
+          get(
+            '/files/*id',
+            to: 'find_file#list',
+            constraints: { id: /(?:[^.]|\.(?!json$))+/, format: /json/ },
+            as: :files
+          )
+        end
+
+        scope do
+          post(
+            '/create_dir/*id',
+              to: 'tree#create_dir',
+              constraints: { id: /.+/ },
+              as: 'create_dir'
+          )
+        end
+
+        scope do
+          get(
             '/blame/*id',
             to: 'blame#show',
             constraints: { id: /.+/, format: /(html|js)/ },
@@ -383,8 +549,15 @@ Gitlab::Application.routes.draw do
         end
 
         resource  :avatar, only: [:show, :destroy]
-        resources :commit, only: [:show], constraints: { id: /[[:alnum:]]{6,40}/ } do
-          get :branches, on: :member
+        resources :commit, only: [:show], constraints: { id: /\h{7,40}/ } do
+          member do
+            get :branches
+            get :builds
+            post :cancel_builds
+            post :retry_builds
+            post :revert
+            post :cherry_pick
+          end
         end
 
         resources :compare, only: [:index, :create]
@@ -393,6 +566,8 @@ Gitlab::Application.routes.draw do
         resources :graphs, only: [:show], constraints: { id: /(?:[^.]|\.(?!json$))+/, format: /json/ } do
           member do
             get :commits
+            get :ci
+            get :languages
           end
         end
 
@@ -405,16 +580,21 @@ Gitlab::Application.routes.draw do
           end
         end
 
-        resources :wikis, only: [:show, :edit, :destroy, :create], constraints: { id: /[a-zA-Z.0-9_\-\/]+/ } do
-          collection do
-            get :pages
-            put ':id' => 'wikis#update'
-            get :git_access
-          end
+        WIKI_SLUG_ID = { id: /\S+/ } unless defined? WIKI_SLUG_ID
 
-          member do
-            get 'history'
-          end
+        scope do
+          # Order matters to give priority to these matches
+          get '/wikis/git_access', to: 'wikis#git_access'
+          get '/wikis/pages', to: 'wikis#pages', as: 'wiki_pages'
+          post '/wikis/markdown_preview', to:'wikis#markdown_preview'
+          post '/wikis', to: 'wikis#create'
+
+          get '/wikis/*id/history', to: 'wikis#history', as: 'wiki_history', constraints: WIKI_SLUG_ID
+          get '/wikis/*id/edit', to: 'wikis#edit', as: 'wiki_edit', constraints: WIKI_SLUG_ID
+
+          get '/wikis/*id', to: 'wikis#show', as: 'wiki', constraints: WIKI_SLUG_ID
+          delete '/wikis/*id', to: 'wikis#destroy', constraints: WIKI_SLUG_ID
+          put '/wikis/*id', to: 'wikis#update', constraints: WIKI_SLUG_ID
         end
 
         resource :repository, only: [:show, :create] do
@@ -436,8 +616,9 @@ Gitlab::Application.routes.draw do
           end
         end
 
-        resource :fork, only: [:new, :create]
+        resources :forks, only: [:index, :new, :create]
         resource :import, only: [:new, :create, :show]
+        resource :notification_setting, only: [:update]
 
         resources :refs, only: [] do
           collection do
@@ -447,21 +628,26 @@ Gitlab::Application.routes.draw do
           member do
             # tree viewer logs
             get 'logs_tree', constraints: { id: Gitlab::Regex.git_reference_regex }
+            # Directories with leading dots erroneously get rejected if git
+            # ref regex used in constraints. Regex verification now done in controller.
             get 'logs_tree/*path' => 'refs#logs_tree', as: :logs_file, constraints: {
-              id: Gitlab::Regex.git_reference_regex,
+              id: /.*/,
               path: /.*/
             }
           end
         end
 
-        resources :merge_requests, constraints: { id: /\d+/ }, except: [:destroy] do
+        resources :merge_requests, constraints: { id: /\d+/ } do
           member do
-            get :diffs
             get :commits
-            post :automerge
-            get :automerge_check
+            get :diffs
+            get :builds
+            get :merge_check
+            post :merge
+            post :cancel_merge_when_build_succeeds
             get :ci_status
             post :toggle_subscription
+            post :remove_wip
           end
 
           collection do
@@ -472,8 +658,41 @@ Gitlab::Application.routes.draw do
         end
 
         resources :branches, only: [:index, :new, :create, :destroy], constraints: { id: Gitlab::Regex.git_reference_regex }
-        resources :tags, only: [:index, :new, :create, :destroy], constraints: { id: Gitlab::Regex.git_reference_regex }
+        resources :tags, only: [:index, :show, :new, :create, :destroy], constraints: { id: Gitlab::Regex.git_reference_regex } do
+          resource :release, only: [:edit, :update]
+        end
+
         resources :protected_branches, only: [:index, :create, :update, :destroy], constraints: { id: Gitlab::Regex.git_reference_regex }
+        resources :variables, only: [:index, :show, :update, :create, :destroy]
+        resources :triggers, only: [:index, :create, :destroy]
+
+        resources :pipelines, only: [:index, :new, :create, :show] do
+          member do
+            post :cancel
+            post :retry
+          end
+        end
+
+        resources :builds, only: [:index, :show], constraints: { id: /\d+/ } do
+          collection do
+            post :cancel_all
+          end
+
+          member do
+            get :status
+            post :cancel
+            post :retry
+            post :erase
+            get :trace
+            get :raw
+          end
+
+          resource :artifacts, only: [] do
+            get :download
+            get :browse, path: 'browse(/*path)', format: false
+            get :file, path: 'file/*path', format: false
+          end
+        end
 
         resources :hooks, only: [:index, :create, :destroy], constraints: { id: /\d+/ } do
           member do
@@ -481,7 +700,9 @@ Gitlab::Application.routes.draw do
           end
         end
 
-        resources :milestones, except: [:destroy], constraints: { id: /\d+/ } do
+        resources :container_registry, only: [:index, :destroy], constraints: { id: Gitlab::Regex.container_registry_reference_regex }
+
+        resources :milestones, constraints: { id: /\d+/ } do
           member do
             put :sort_issues
             put :sort_merge_requests
@@ -492,11 +713,18 @@ Gitlab::Application.routes.draw do
           collection do
             post :generate
           end
-        end
 
-        resources :issues, constraints: { id: /\d+/ }, except: [:destroy] do
           member do
             post :toggle_subscription
+          end
+        end
+
+        resources :issues, constraints: { id: /\d+/ } do
+          member do
+            post :toggle_subscription
+            get :referenced_merge_requests
+            get :related_branches
+            get :can_create_branch
           end
           collection do
             post  :bulk_update
@@ -518,9 +746,15 @@ Gitlab::Application.routes.draw do
           end
         end
 
+        resources :group_links, only: [:index, :create, :destroy], constraints: { id: /\d+/ }
+
         resources :notes, only: [:index, :create, :destroy, :update], constraints: { id: /\d+/ } do
           member do
             delete :delete_attachment
+          end
+
+          collection do
+            post :award_toggle
           end
         end
 
@@ -529,10 +763,32 @@ Gitlab::Application.routes.draw do
             get ":secret/:filename", action: :show, as: :show, constraints: { filename: /[^\/]+/ }
           end
         end
-      end
 
+        resources :runners, only: [:index, :edit, :update, :destroy, :show] do
+          member do
+            get :resume
+            get :pause
+          end
+
+          collection do
+            post :toggle_shared_runners
+          end
+        end
+
+        resources :runner_projects, only: [:create, :destroy]
+        resources :badges, only: [:index] do
+          collection do
+            scope '*ref', constraints: { ref: Gitlab::Regex.git_reference_regex } do
+              get :build, constraints: { format: /svg/ }
+            end
+          end
+        end
+      end
     end
   end
+
+  # Get all keys of user
+  get ':username.keys' => 'profiles/keys#get_keys' , constraints: { username: /.*/ }
 
   get ':id' => 'namespaces#show', constraints: { id: /(?:[^.]|\.(?!atom$))+/, format: /atom/ }
 end

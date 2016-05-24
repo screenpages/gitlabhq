@@ -1,9 +1,9 @@
 - page_title "Projects"
 = render 'shared/show_aside'
 
-.row
+.row.prepend-top-default
   %aside.col-md-3
-    .admin-filter
+    .panel.admin-filter
       = form_tag admin_namespaces_projects_path, method: :get, class: '' do
         .form-group
           = label_tag :name, 'Name:'
@@ -23,6 +23,10 @@
             = label_tag :abandoned do
               = check_box_tag :abandoned, 1, params[:abandoned]
               %span No activity over 6 month
+          .checkbox
+            = label_tag :with_archived do
+              = check_box_tag :with_archived, 1, params[:with_archived]
+              %span Show archived projects
 
         %fieldset
           %strong Visibility level:
@@ -34,7 +38,13 @@
                   %span.descr
                     = visibility_level_icon(level)
                     = label
-        %hr
+        %fieldset
+          %strong Problems
+          .checkbox
+            = label_tag :last_repository_check_failed do
+              = check_box_tag :last_repository_check_failed, 1, params[:last_repository_check_failed]
+              %span Last repository check failed
+
         = hidden_field_tag :sort, params[:sort]
         = button_tag "Search", class: "btn submit btn-primary"
         = link_to "Reset", admin_namespaces_projects_path, class: "btn btn-cancel"
@@ -43,10 +53,10 @@
     .panel.panel-default
       .panel-heading
         Projects (#{@projects.total_count})
-        .panel-head-actions
+        .controls
           .dropdown.inline
             %button.dropdown-toggle.btn.btn-sm{type: 'button', 'data-toggle' => 'dropdown'}
-              %span.light sort:
+              %span.light
               - if @sort.present?
                 = sort_options_hash[@sort]
               - else
@@ -73,6 +83,8 @@
                 = visibility_level_icon(project.visibility_level)
               = link_to project.name_with_namespace, [:admin, project.namespace.becomes(Namespace), project]
             .pull-right
+              - if project.archived
+                %span.label.label-warning archived
               %span.label.label-gray
                 = repository_size(project)
               = link_to 'Edit', edit_namespace_project_path(project.namespace, project), id: "edit_#{dom_id(project)}", class: "btn btn-sm"

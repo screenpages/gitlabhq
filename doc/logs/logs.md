@@ -1,6 +1,6 @@
 ## Log system
 GitLab has advanced log system so everything is logging and you can analize your instance using various system log files.
-In addition to system log files, GitLab Enterprise Edition comes with Audit Events. Find more about them [in Audit Events documentation](http://doc.gitlab.com/ee/administration/audit_events.html)
+In addition to system log files, GitLab Enterprise Edition comes with Audit Events. Find more about them [in Audit Events documentation](http://docs.gitlab.com/ee/administration/audit_events.html)
 
 System log files are typically plain text in a standard log file format. This guide talks about how to read and use these system log files.
 
@@ -49,16 +49,6 @@ The GitLab has to interact with git repositories but in some rare cases somethin
 December 03, 2014 13:20 -> ERROR -> Command failed [1]: /usr/bin/git --git-dir=/Users/vsizov/gitlab-development-kit/gitlab/tmp/tests/gitlab-satellites/group184/gitlabhq/.git --work-tree=/Users/vsizov/gitlab-development-kit/gitlab/tmp/tests/gitlab-satellites/group184/gitlabhq merge --no-ff -mMerge branch 'feature_conflict' into 'feature' source/feature_conflict
 
 error: failed to push some refs to '/Users/vsizov/gitlab-development-kit/repositories/gitlabhq/gitlab_git.git'
-```
-
-#### satellites.log
-This file lives in `/var/log/gitlab/gitlab-rails/satellites.log` for omnibus package or in `/home/git/gitlab/log/satellites.log` for installations from the source.
-
-In some cases GitLab should perform write actions to git repository, for example when it is needed to merge the merge request or edit a file with online editor. If something went wrong you can look into this file to find out what exactly happened.
-```
-October 07, 2014 11:36: Failed to create satellite for Chesley Weimann III / project1817
-October 07, 2014 11:36: PID: 1872: git clone /Users/vsizov/gitlab-development-kit/gitlab/tmp/tests/repositories/conrad6841/gitlabhq.git /Users/vsizov/gitlab-development-kit/gitlab/tmp/tests/gitlab-satellites/conrad6841/gitlabhq
-October 07, 2014 11:36: PID: 1872: -> fatal: repository '/Users/vsizov/gitlab-development-kit/gitlab/tmp/tests/repositories/conrad6841/gitlabhq.git' does not exist
 ```
 
 #### sidekiq.log

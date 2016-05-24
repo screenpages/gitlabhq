@@ -4,6 +4,7 @@ describe AutocompleteController do
   let!(:project) { create(:project) }
   let!(:user)    { create(:user) }
   let!(:user2)   { create(:user) }
+  let!(:non_member)   { create(:user) }
 
   context 'project members' do
     before do
@@ -11,16 +12,16 @@ describe AutocompleteController do
       project.team << [user, :master]
     end
 
-    let(:body) { JSON.parse(response.body) }
-
     describe 'GET #users with project ID' do
       before do
         get(:users, project_id: project.id)
       end
 
+      let(:body) { JSON.parse(response.body) }
+
       it { expect(body).to be_kind_of(Array) }
       it { expect(body.size).to eq 1 }
-      it { expect(body.first["username"]).to eq user.username }
+      it { expect(body.map { |u| u["username"] }).to include(user.username) }
     end
 
     describe 'GET #users with unknown project' do
@@ -61,6 +62,27 @@ describe AutocompleteController do
     end
   end
 
+  context 'non-member login for public project' do
+    let!(:project) { create(:project, :public) }
+
+    before do
+      sign_in(non_member)
+      project.team << [user, :master]
+    end
+
+    let(:body) { JSON.parse(response.body) }
+
+    describe 'GET #users with project ID' do
+      before do
+        get(:users, project_id: project.id, current_user: true)
+      end
+
+      it { expect(body).to be_kind_of(Array) }
+      it { expect(body.size).to eq 2 }
+      it { expect(body.map { |u| u['username'] }).to match_array([user.username, non_member.username]) }
+    end
+  end
+
   context 'all users' do
     before do
       sign_in(user)
@@ -92,7 +114,7 @@ describe AutocompleteController do
         get(:users, project_id: project.id)
       end
 
-      it { expect(response.status).to eq(302) }
+      it { expect(response.status).to eq(404) }
     end
 
     describe 'GET #users with unknown project' do
@@ -100,7 +122,7 @@ describe AutocompleteController do
         get(:users, project_id: 'unknown')
       end
 
-      it { expect(response.status).to eq(302) }
+      it { expect(response.status).to eq(404) }
     end
 
     describe 'GET #users with inaccessible group' do
@@ -109,7 +131,7 @@ describe AutocompleteController do
         get(:users, group_id: user.namespace.id)
       end
 
-      it { expect(response.status).to eq(302) }
+      it { expect(response.status).to eq(404) }
     end
 
     describe 'GET #users with no project' do
@@ -117,7 +139,28 @@ describe AutocompleteController do
         get(:users)
       end
 
-      it { expect(response.status).to eq(302) }
+      it { expect(body).to be_kind_of(Array) }
+      it { expect(body.size).to eq 0 }
+    end
+  end
+
+  context 'author of issuable included' do
+    before do
+      sign_in(user)
+    end
+
+    let(:body) { JSON.parse(response.body) }
+
+    it 'includes the author' do
+      get(:users, author_id: non_member.id)
+
+      expect(body.first["username"]).to eq non_member.username
+    end
+
+    it 'rejects non existent user ids' do
+      get(:users, author_id: 99999)
+
+      expect(body.collect { |u| u['id'] }).not_to include(99999)
     end
   end
 end

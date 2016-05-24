@@ -1,7 +1,7 @@
 # coding: utf-8
 require 'spec_helper'
 
-describe Gitlab::Regex do
+describe Gitlab::Regex, lib: true do
   describe 'project path regex' do
     it { expect('gitlab-ce').to match(Gitlab::Regex.project_path_regex) }
     it { expect('gitlab_git').to match(Gitlab::Regex.project_path_regex) }
@@ -20,5 +20,13 @@ describe Gitlab::Regex do
     it { expect('Český název').to match(Gitlab::Regex.project_name_regex) }
     it { expect('Dash – is this').to match(Gitlab::Regex.project_name_regex) }
     it { expect('?gitlab').not_to match(Gitlab::Regex.project_name_regex) }
+  end
+
+  describe 'file name regex' do
+    it { expect('foo@bar').to match(Gitlab::Regex.file_name_regex) }
+  end
+
+  describe 'file path regex' do
+    it { expect('foo@/bar').to match(Gitlab::Regex.file_path_regex) }
   end
 end

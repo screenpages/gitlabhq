@@ -1,22 +1,3 @@
-# == Schema Information
-#
-# Table name: members
-#
-#  id                 :integer          not null, primary key
-#  access_level       :integer          not null
-#  source_id          :integer          not null
-#  source_type        :string(255)      not null
-#  user_id            :integer
-#  notification_level :integer          not null
-#  type               :string(255)
-#  created_at         :datetime
-#  updated_at         :datetime
-#  created_by_id      :integer
-#  invite_email       :string(255)
-#  invite_token       :string(255)
-#  invite_accepted_at :datetime
-#
-
 class ProjectMember < Member
   SOURCE_TYPE = 'Project'
 
@@ -27,7 +8,6 @@ class ProjectMember < Member
 
   # Make sure project member points only to project as it source
   default_value_for :source_type, SOURCE_TYPE
-  default_value_for :notification_level, Notification::N_GLOBAL
   validates_format_of :source_type, with: /\AProject\z/
   default_scope { where(source_type: SOURCE_TYPE) }
 
@@ -84,7 +64,7 @@ class ProjectMember < Member
     def truncate_teams(project_ids)
       ProjectMember.transaction do
         members = ProjectMember.where(source_id: project_ids)
-        
+
         members.each do |member|
           member.destroy
         end
@@ -133,13 +113,13 @@ class ProjectMember < Member
       event_service.join_project(self.project, self.user)
       notification_service.new_project_member(self)
     end
-    
+
     super
   end
 
   def post_update_hook
     if access_level_changed?
-      notification_service.update_project_member(self) 
+      notification_service.update_project_member(self)
     end
 
     super

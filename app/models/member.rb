@@ -1,25 +1,5 @@
-# == Schema Information
-#
-# Table name: members
-#
-#  id                 :integer          not null, primary key
-#  access_level       :integer          not null
-#  source_id          :integer          not null
-#  source_type        :string(255)      not null
-#  user_id            :integer
-#  notification_level :integer          not null
-#  type               :string(255)
-#  created_at         :datetime
-#  updated_at         :datetime
-#  created_by_id      :integer
-#  invite_email       :string(255)
-#  invite_token       :string(255)
-#  invite_accepted_at :datetime
-#
-
 class Member < ActiveRecord::Base
   include Sortable
-  include Notifiable
   include Gitlab::Access
 
   attr_accessor :raw_invite_token
@@ -30,13 +10,21 @@ class Member < ActiveRecord::Base
 
   validates :user, presence: true, unless: :invite?
   validates :source, presence: true
-  validates :user_id, uniqueness: { scope: [:source_type, :source_id], 
+  validates :user_id, uniqueness: { scope: [:source_type, :source_id],
                                     message: "already exists in source",
                                     allow_nil: true }
   validates :access_level, inclusion: { in: Gitlab::Access.all_values }, presence: true
-  validates :invite_email,  presence: { if: :invite? }, 
-                            email: { strict_mode: true, allow_nil: true }, 
-                            uniqueness: { scope: [:source_type, :source_id], allow_nil: true }
+  validates :invite_email,
+    presence: {
+      if: :invite?
+    },
+    email: {
+      allow_nil: true
+    },
+    uniqueness: {
+      scope: [:source_type, :source_id],
+      allow_nil: true
+    }
 
   scope :invite, -> { where(user_id: nil) }
   scope :non_invite, -> { where("user_id IS NOT NULL") }
@@ -48,11 +36,14 @@ class Member < ActiveRecord::Base
 
   before_validation :generate_invite_token, on: :create, if: -> (member) { member.invite_email.present? }
   after_create :send_invite, if: :invite?
+  after_create :create_notification_setting, unless: :invite?
   after_create :post_create_hook, unless: :invite?
   after_update :post_update_hook, unless: :invite?
   after_destroy :post_destroy_hook, unless: :invite?
 
   delegate :name, :username, :email, to: :user, prefix: true
+
+  default_value_for :notification_level, NotificationSetting.levels[:global]
 
   class << self
     def find_by_invite_token(invite_token)
@@ -73,7 +64,7 @@ class Member < ActiveRecord::Base
 
     def add_user(members, user_id, access_level, current_user = nil)
       user = user_for_id(user_id)
-      
+
       # `user` can be either a User object or an email to be invited
       if user.is_a?(User)
         member = members.find_or_initialize_by(user_id: user.id)
@@ -82,10 +73,26 @@ class Member < ActiveRecord::Base
         member.invite_email = user
       end
 
-      member.created_by ||= current_user
-      member.access_level = access_level
+      if can_update_member?(current_user, member) || project_creator?(member, access_level)
+        member.created_by ||= current_user
+        member.access_level = access_level
 
-      member.save
+        member.save
+      end
+    end
+
+    private
+
+    def can_update_member?(current_user, member)
+      # There is no current user for bulk actions, in which case anything is allowed
+      !current_user ||
+        current_user.can?(:update_group_member, member) ||
+        current_user.can?(:update_project_member, member)
+    end
+
+    def project_creator?(member, access_level)
+      member.new_record? && member.owner? &&
+        access_level.to_i == ProjectMember::MASTER
     end
   end
 
@@ -95,7 +102,7 @@ class Member < ActiveRecord::Base
 
   def accept_invite!(new_user)
     return false unless invite?
-    
+
     self.invite_token = nil
     self.invite_accepted_at = Time.now.utc
 
@@ -134,6 +141,14 @@ class Member < ActiveRecord::Base
     generate_invite_token! unless @raw_invite_token
 
     send_invite
+  end
+
+  def create_notification_setting
+    user.notification_settings.find_or_create_for(source)
+  end
+
+  def notification_setting
+    @notification_setting ||= user.notification_settings_for(source)
   end
 
   private

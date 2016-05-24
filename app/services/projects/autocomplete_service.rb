@@ -1,11 +1,11 @@
 module Projects
   class AutocompleteService < BaseService
-    def initialize(project)
-      @project = project
+    def issues
+      @project.issues.visible_to_user(current_user).opened.select([:iid, :title])
     end
 
-    def issues
-      @project.issues.opened.select([:iid, :title])
+    def milestones
+      @project.milestones.active.reorder(due_date: :asc, title: :asc).select([:iid, :title])
     end
 
     def merge_requests

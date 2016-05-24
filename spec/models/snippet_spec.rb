@@ -1,23 +1,6 @@
-# == Schema Information
-#
-# Table name: snippets
-#
-#  id               :integer          not null, primary key
-#  title            :string(255)
-#  content          :text
-#  author_id        :integer          not null
-#  project_id       :integer
-#  created_at       :datetime
-#  updated_at       :datetime
-#  file_name        :string(255)
-#  expires_at       :datetime
-#  type             :string(255)
-#  visibility_level :integer          default(0), not null
-#
-
 require 'spec_helper'
 
-describe Snippet do
+describe Snippet, models: true do
   describe 'modules' do
     subject { described_class }
 
@@ -58,6 +41,50 @@ describe Snippet do
     it 'supports a cross-project reference' do
       cross = double('project')
       expect(snippet.to_reference(cross)).to eq "#{project.to_reference}$#{snippet.id}"
+    end
+  end
+
+  describe '.search' do
+    let(:snippet) { create(:snippet) }
+
+    it 'returns snippets with a matching title' do
+      expect(described_class.search(snippet.title)).to eq([snippet])
+    end
+
+    it 'returns snippets with a partially matching title' do
+      expect(described_class.search(snippet.title[0..2])).to eq([snippet])
+    end
+
+    it 'returns snippets with a matching title regardless of the casing' do
+      expect(described_class.search(snippet.title.upcase)).to eq([snippet])
+    end
+
+    it 'returns snippets with a matching file name' do
+      expect(described_class.search(snippet.file_name)).to eq([snippet])
+    end
+
+    it 'returns snippets with a partially matching file name' do
+      expect(described_class.search(snippet.file_name[0..2])).to eq([snippet])
+    end
+
+    it 'returns snippets with a matching file name regardless of the casing' do
+      expect(described_class.search(snippet.file_name.upcase)).to eq([snippet])
+    end
+  end
+
+  describe '#search_code' do
+    let(:snippet) { create(:snippet, content: 'class Foo; end') }
+
+    it 'returns snippets with matching content' do
+      expect(described_class.search_code(snippet.content)).to eq([snippet])
+    end
+
+    it 'returns snippets with partially matching content' do
+      expect(described_class.search_code('class')).to eq([snippet])
+    end
+
+    it 'returns snippets with matching content regardless of the casing' do
+      expect(described_class.search_code('FOO')).to eq([snippet])
     end
   end
 end

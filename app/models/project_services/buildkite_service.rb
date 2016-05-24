@@ -1,31 +1,11 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#
-
 require "addressable/uri"
 
 class BuildkiteService < CiService
   ENDPOINT = "https://buildkite.com"
 
-  prop_accessor :project_url, :token
+  prop_accessor :project_url, :token, :enable_ssl_verification
 
-  validates :project_url, presence: true, if: :activated?
+  validates :project_url, presence: true, url: true, if: :activated?
   validates :token, presence: true, if: :activated?
 
   after_save :compose_service_hook, if: :activated?
@@ -37,6 +17,7 @@ class BuildkiteService < CiService
   def compose_service_hook
     hook = service_hook || build_service_hook
     hook.url = webhook_url
+    hook.enable_ssl_verification = !!enable_ssl_verification
     hook.save
   end
 
@@ -68,14 +49,6 @@ class BuildkiteService < CiService
     "#{project_url}/builds?commit=#{sha}"
   end
 
-  def builds_path
-    "#{project_url}/builds?branch=#{project.default_branch}"
-  end
-
-  def status_img_path
-    "#{buildkite_endpoint('badge')}/#{status_token}.svg"
-  end
-
   def title
     'Buildkite'
   end
@@ -96,7 +69,11 @@ class BuildkiteService < CiService
 
       { type: 'text',
         name: 'project_url',
-        placeholder: "#{ENDPOINT}/example/project" }
+        placeholder: "#{ENDPOINT}/example/project" },
+
+      { type: 'checkbox',
+        name: 'enable_ssl_verification',
+        title: "Enable SSL verification" }
     ]
   end
 

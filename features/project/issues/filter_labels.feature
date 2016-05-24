@@ -1,3 +1,4 @@
+@project_issues
 Feature: Project Issues Filter Labels
   Background:
     Given I sign in as a user
@@ -11,6 +12,7 @@ Feature: Project Issues Filter Labels
   @javascript
   Scenario: I filter by one label
     Given I click link "bug"
+    And I click "dropdown close button"
     Then I should see "Bugfix1" in issues list
     And I should see "Bugfix2" in issues list
     And I should not see "Feature1" in issues list

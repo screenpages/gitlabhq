@@ -7,16 +7,16 @@
 A backup creates an archive file that contains the database, all repositories and all attachments.
 This archive will be saved in backup_path (see `config/gitlab.yml`).
 The filename will be `[TIMESTAMP]_gitlab_backup.tar`. This timestamp can be used to restore an specific backup.
-You can only restore a backup to exactly the same version of GitLab that you created it on, for example 7.2.1.
+You can only restore a backup to exactly the same version of GitLab that you created it
+on, for example 7.2.1. The best way to migrate your repositories from one server to
+another is through backup restore.
 
 You need to keep a separate copy of `/etc/gitlab/gitlab-secrets.json`
 (for omnibus packages) or `/home/git/gitlab/.secret` (for installations
 from source). This file contains the database encryption key used
 for two-factor authentication. If you restore a GitLab backup without
 restoring the database encryption key, users who have two-factor
-authentication enabled will loose access to your GitLab server.
-
-If you are interested in GitLab CI backup please follow to the [CI backup documentation](https://gitlab.com/gitlab-org/gitlab-ci/blob/master/doc/raketasks/backup_restore.md)*
+authentication enabled will lose access to your GitLab server.
 
 ```
 # use this command if you've installed GitLab with the Omnibus package
@@ -27,7 +27,8 @@ sudo -u git -H bundle exec rake gitlab:backup:create RAILS_ENV=production
 ```
 
 Also you can choose what should be backed up by adding environment variable SKIP. Available options: db,
-uploads (attachments), repositories. Use a comma to specify several options at the same time.
+uploads (attachments), repositories, builds(CI build output logs), artifacts (CI build artifacts), lfs (LFS objects).
+Use a comma to specify several options at the same time.
 
 ```
 sudo gitlab-rake gitlab:backup:create SKIP=db,uploads
@@ -95,6 +96,8 @@ For installations from source:
         aws_secret_access_key: 'secret123'
       # The remote 'directory' to store your backups. For S3, this would be the bucket name.
       remote_directory: 'my.s3.bucket'
+      # Turns on AWS Server-Side Encryption with Amazon S3-Managed Keys for backups, this is optional
+      # encryption: 'AES256'
 ```
 
 If you are uploading your backups to S3 you will probably want to create a new
@@ -148,6 +151,66 @@ with the name of your bucket:
 }
 ```
 
+### Uploading to locally mounted shares
+
+You may also send backups to a mounted share (`NFS` / `CIFS` / `SMB` / etc.) by
+using the [`Local`](https://github.com/fog/fog-local#usage) storage provider.
+The directory pointed to by the `local_root` key **must** be owned by the `git`
+user **when mounted** (mounting with the `uid=` of the `git` user for `CIFS` and
+`SMB`) or the user that you are executing the backup tasks under (for omnibus
+packages, this is the `git` user).
+
+The `backup_upload_remote_directory` **must** be set in addition to the
+`local_root` key. This is the sub directory inside the mounted directory that
+backups will be copied to, and will be created if it does not exist. If the
+directory that you want to copy the tarballs to is the root of your mounted
+directory, just use `.` instead.
+
+For omnibus packages:
+
+```ruby
+gitlab_rails['backup_upload_connection'] = {
+  :provider => 'Local',
+  :local_root => '/mnt/backups'
+}
+
+# The directory inside the mounted folder to copy backups to
+# Use '.' to store them in the root directory
+gitlab_rails['backup_upload_remote_directory'] = 'gitlab_backups'
+```
+
+For installations from source:
+
+```yaml
+  backup:
+    # snip
+    upload:
+      # Fog storage connection settings, see http://fog.io/storage/ .
+      connection:
+        provider: Local
+        local_root: '/mnt/backups'
+      # The directory inside the mounted folder to copy backups to
+      # Use '.' to store them in the root directory
+      remote_directory: 'gitlab_backups'
+```
+
+## Backup archive permissions
+
+The backup archives created by GitLab (123456_gitlab_backup.tar) will have owner/group git:git and 0600 permissions by default.
+This is meant to avoid other system users reading GitLab's data.
+If you need the backup archives to have different permissions you can use the 'archive_permissions' setting.
+
+```
+# In /etc/gitlab/gitlab.rb, for omnibus packages
+gitlab_rails['backup_archive_permissions'] = 0644 # Makes the backup archives world-readable
+```
+
+```
+# In gitlab.yml, for installations from source:
+  backup:
+    archive_permissions: 0644 # Makes the backup archives world-readable
+```
+
 ## Storing configuration files
 
 Please be informed that a backup does not store your configuration
@@ -186,6 +249,9 @@ reconfigure` after changing `gitlab-secrets.json`.
 ### Installation from source
 
 ```
+# Stop processes that are connected to the database
+sudo service gitlab stop
+
 bundle exec rake gitlab:backup:restore RAILS_ENV=production
 ```
 
@@ -229,39 +295,49 @@ Deleting tmp directories...[DONE]
 
 ### Omnibus installations
 
-We will assume that you have installed GitLab from an omnibus package and run
-`sudo gitlab-ctl reconfigure` at least once.
+This procedure assumes that:
 
-First make sure your backup tar file is in `/var/opt/gitlab/backups`.
+- You have installed the exact same version of GitLab Omnibus with which the
+  backup was created
+- You have run `sudo gitlab-ctl reconfigure` at least once
+- GitLab is running.  If not, start it using `sudo gitlab-ctl start`.
+
+First make sure your backup tar file is in the backup directory described in the
+`gitlab.rb` configuration `gitlab_rails['backup_path']`. The default is
+`/var/opt/gitlab/backups`.
 
 ```shell
 sudo cp 1393513186_gitlab_backup.tar /var/opt/gitlab/backups/
 ```
 
-Next, restore the backup by running the restore command. You need to specify the
-timestamp of the backup you are restoring.
+Stop the processes that are connected to the database.  Leave the rest of GitLab
+running:
 
 ```shell
-# Stop processes that are connected to the database
 sudo gitlab-ctl stop unicorn
 sudo gitlab-ctl stop sidekiq
+# Verify
+sudo gitlab-ctl status
+```
 
+Next, restore the backup, specifying the timestamp of the backup you wish to
+restore:
+
+```shell
 # This command will overwrite the contents of your GitLab database!
 sudo gitlab-rake gitlab:backup:restore BACKUP=1393513186
+```
 
-# Start GitLab
+Restart and check GitLab:
+
+```shell
 sudo gitlab-ctl start
-
-# Create satellites
-sudo gitlab-rake gitlab:satellites:create
-
-# Check GitLab
 sudo gitlab-rake gitlab:check SANITIZE=true
 ```
 
 If there is a GitLab version mismatch between your backup tar file and the installed
-version of GitLab, the restore command will abort with an error. Install a package for
-the [required version](https://www.gitlab.com/downloads/archives/) and try again.
+version of GitLab, the restore command will abort with an error. Install the
+[correct GitLab version](https://www.gitlab.com/downloads/archives/) and try again.
 
 ## Configure cron to make daily backups
 
@@ -338,8 +414,8 @@ If you are using backup restore procedures you might encounter the following war
 
 ```
 psql:/var/opt/gitlab/backups/db/database.sql:22: ERROR:  must be owner of extension plpgsql
-psql:/var/opt/gitlab/backups/db/database.sql:2931: WARNING:  no privileges could be revoked for "public" (two occurences)
-psql:/var/opt/gitlab/backups/db/database.sql:2933: WARNING:  no privileges were granted for "public" (two occurences)
+psql:/var/opt/gitlab/backups/db/database.sql:2931: WARNING:  no privileges could be revoked for "public" (two occurrences)
+psql:/var/opt/gitlab/backups/db/database.sql:2933: WARNING:  no privileges were granted for "public" (two occurrences)
 
 ```
 
@@ -353,3 +429,10 @@ For more information see similar questions on postgresql issue tracker[here](htt
 ## Note
 This documentation is for GitLab CE.
 We backup GitLab.com and make sure your data is secure, but you can't use these methods to export / backup your data yourself from GitLab.com.
+
+Issues are stored in the database. They can't be stored in Git itself.
+
+To migrate your repositories from one server to another with an up-to-date version of
+GitLab, you can use the [import rake task](import.md) to do a mass import of the
+repository. Note that if you do an import rake task, rather than a backup restore, you
+will have all your repositories, but not any other data.

@@ -1,67 +1,6 @@
-# == Schema Information
-#
-# Table name: users
-#
-#  id                            :integer          not null, primary key
-#  email                         :string(255)      default(""), not null
-#  encrypted_password            :string(255)      default(""), not null
-#  reset_password_token          :string(255)
-#  reset_password_sent_at        :datetime
-#  remember_created_at           :datetime
-#  sign_in_count                 :integer          default(0)
-#  current_sign_in_at            :datetime
-#  last_sign_in_at               :datetime
-#  current_sign_in_ip            :string(255)
-#  last_sign_in_ip               :string(255)
-#  created_at                    :datetime
-#  updated_at                    :datetime
-#  name                          :string(255)
-#  admin                         :boolean          default(FALSE), not null
-#  projects_limit                :integer          default(10)
-#  skype                         :string(255)      default(""), not null
-#  linkedin                      :string(255)      default(""), not null
-#  twitter                       :string(255)      default(""), not null
-#  authentication_token          :string(255)
-#  theme_id                      :integer          default(1), not null
-#  bio                           :string(255)
-#  failed_attempts               :integer          default(0)
-#  locked_at                     :datetime
-#  username                      :string(255)
-#  can_create_group              :boolean          default(TRUE), not null
-#  can_create_team               :boolean          default(TRUE), not null
-#  state                         :string(255)
-#  color_scheme_id               :integer          default(1), not null
-#  notification_level            :integer          default(1), not null
-#  password_expires_at           :datetime
-#  created_by_id                 :integer
-#  last_credential_check_at      :datetime
-#  avatar                        :string(255)
-#  confirmation_token            :string(255)
-#  confirmed_at                  :datetime
-#  confirmation_sent_at          :datetime
-#  unconfirmed_email             :string(255)
-#  hide_no_ssh_key               :boolean          default(FALSE)
-#  website_url                   :string(255)      default(""), not null
-#  github_access_token           :string(255)
-#  gitlab_access_token           :string(255)
-#  notification_email            :string(255)
-#  hide_no_password              :boolean          default(FALSE)
-#  password_automatically_set    :boolean          default(FALSE)
-#  bitbucket_access_token        :string(255)
-#  bitbucket_access_token_secret :string(255)
-#  location                      :string(255)
-#  encrypted_otp_secret          :string(255)
-#  encrypted_otp_secret_iv       :string(255)
-#  encrypted_otp_secret_salt     :string(255)
-#  otp_required_for_login        :boolean          default(FALSE), not null
-#  otp_backup_codes              :text
-#  public_email                  :string(255)      default(""), not null
-#  dashboard                     :integer          default(0)
-#
-
 require 'spec_helper'
 
-describe User do
+describe User, models: true do
   include Gitlab::CurrentSettings
 
   describe 'modules' do
@@ -88,10 +27,29 @@ describe User do
     it { is_expected.to have_many(:merge_requests).dependent(:destroy) }
     it { is_expected.to have_many(:assigned_merge_requests).dependent(:destroy) }
     it { is_expected.to have_many(:identities).dependent(:destroy) }
+    it { is_expected.to have_one(:abuse_report) }
+    it { is_expected.to have_many(:spam_logs).dependent(:destroy) }
+    it { is_expected.to have_many(:todos).dependent(:destroy) }
   end
 
   describe 'validations' do
-    it { is_expected.to validate_presence_of(:username) }
+    describe 'username' do
+      it 'validates presence' do
+        expect(subject).to validate_presence_of(:username)
+      end
+
+      it 'rejects blacklisted names' do
+        user = build(:user, username: 'dashboard')
+
+        expect(user).not_to be_valid
+        expect(user.errors.values).to eq [['dashboard is a reserved name']]
+      end
+
+      it 'validates uniqueness' do
+        expect(subject).to validate_uniqueness_of(:username).case_insensitive
+      end
+    end
+
     it { is_expected.to validate_presence_of(:projects_limit) }
     it { is_expected.to validate_numericality_of(:projects_limit) }
     it { is_expected.to allow_value(0).for(:projects_limit) }
@@ -99,37 +57,15 @@ describe User do
 
     it { is_expected.to validate_length_of(:bio).is_within(0..255) }
 
+    it_behaves_like 'an object with email-formated attributes', :email do
+      subject { build(:user) }
+    end
+
+    it_behaves_like 'an object with email-formated attributes', :public_email, :notification_email do
+      subject { build(:user).tap { |user| user.emails << build(:email, email: email_value) } }
+    end
+
     describe 'email' do
-      it 'accepts info@example.com' do
-        user = build(:user, email: 'info@example.com')
-        expect(user).to be_valid
-      end
-
-      it 'accepts info+test@example.com' do
-        user = build(:user, email: 'info+test@example.com')
-        expect(user).to be_valid
-      end
-
-      it "accepts o'reilly@example.com" do
-        user = build(:user, email: "o'reilly@example.com")
-        expect(user).to be_valid
-      end
-
-      it 'rejects test@test@example.com' do
-        user = build(:user, email: 'test@test@example.com')
-        expect(user).to be_invalid
-      end
-
-      it 'rejects mailto:test@example.com' do
-        user = build(:user, email: 'mailto:test@example.com')
-        expect(user).to be_invalid
-      end
-
-      it "rejects lol!'+=?><#$%^&*()@gmail.com" do
-        user = build(:user, email: "lol!'+=?><#$%^&*()@gmail.com")
-        expect(user).to be_invalid
-      end
-
       context 'when no signup domains listed' do
         before { allow(current_application_settings).to receive(:restricted_signup_domains).and_return([]) }
         it 'accepts any email' do
@@ -174,6 +110,13 @@ describe User do
           expect(user).to be_invalid
         end
       end
+
+      context 'owns_notification_email' do
+        it 'accepts temp_oauth_email emails' do
+          user = build(:user, email: "temp-email-for-oauth@example.com")
+          expect(user).to be_valid
+        end
+      end
     end
   end
 
@@ -181,6 +124,34 @@ describe User do
     it { is_expected.to respond_to(:is_admin?) }
     it { is_expected.to respond_to(:name) }
     it { is_expected.to respond_to(:private_token) }
+    it { is_expected.to respond_to(:external?) }
+  end
+
+  describe 'before save hook' do
+    context 'when saving an external user' do
+      let(:user)          { create(:user) }
+      let(:external_user) { create(:user, external: true) }
+
+      it "sets other properties aswell" do
+        expect(external_user.can_create_team).to be_falsey
+        expect(external_user.can_create_group).to be_falsey
+        expect(external_user.projects_limit).to be 0
+      end
+    end
+  end
+
+  describe '#confirm' do
+    before { allow(current_application_settings).to receive(:send_user_confirmation_email).and_return(true) }
+    let(:user) { create(:user, confirmed_at: nil, unconfirmed_email: 'test@gitlab.com') }
+
+    it 'returns unconfirmed' do
+      expect(user.confirmed?).to be_falsey
+    end
+
+    it 'confirms a user' do
+      user.confirm
+      expect(user.confirmed?).to be_truthy
+    end
   end
 
   describe '#to_reference' do
@@ -217,6 +188,26 @@ describe User do
     end
   end
 
+  describe '#recently_sent_password_reset?' do
+    it 'is false when reset_password_sent_at is nil' do
+      user = build_stubbed(:user, reset_password_sent_at: nil)
+
+      expect(user.recently_sent_password_reset?).to eq false
+    end
+
+    it 'is false when sent more than one minute ago' do
+      user = build_stubbed(:user, reset_password_sent_at: 5.minutes.ago)
+
+      expect(user.recently_sent_password_reset?).to eq false
+    end
+
+    it 'is true when sent less than one minute ago' do
+      user = build_stubbed(:user, reset_password_sent_at: Time.now)
+
+      expect(user.recently_sent_password_reset?).to eq true
+    end
+  end
+
   describe '#disable_two_factor!' do
     it 'clears all 2FA-related fields' do
       user = create(:user, :two_factor)
@@ -224,6 +215,7 @@ describe User do
       expect(user).to be_two_factor_enabled
       expect(user.encrypted_otp_secret).not_to be_nil
       expect(user.otp_backup_codes).not_to be_nil
+      expect(user.otp_grace_period_started_at).not_to be_nil
 
       user.disable_two_factor!
 
@@ -232,6 +224,7 @@ describe User do
       expect(user.encrypted_otp_secret_iv).to be_nil
       expect(user.encrypted_otp_secret_salt).to be_nil
       expect(user.otp_backup_codes).to be_nil
+      expect(user.otp_grace_period_started_at).to be_nil
     end
   end
 
@@ -370,6 +363,7 @@ describe User do
         expect(user.projects_limit).to eq(Gitlab.config.gitlab.default_projects_limit)
         expect(user.can_create_group).to eq(Gitlab.config.gitlab.default_can_create_group)
         expect(user.theme_id).to eq(Gitlab.config.gitlab.default_theme)
+        expect(user.external).to be_falsey
       end
     end
 
@@ -403,17 +397,43 @@ describe User do
     end
   end
 
-  describe 'search' do
-    let(:user1) { create(:user, username: 'James', email: 'james@testing.com') }
-    let(:user2) { create(:user, username: 'jameson', email: 'jameson@example.com') }
+  describe '.search' do
+    let(:user) { create(:user) }
 
-    it "should be case insensitive" do
-      expect(User.search(user1.username.upcase).to_a).to eq([user1])
-      expect(User.search(user1.username.downcase).to_a).to eq([user1])
-      expect(User.search(user2.username.upcase).to_a).to eq([user2])
-      expect(User.search(user2.username.downcase).to_a).to eq([user2])
-      expect(User.search(user1.username.downcase).to_a.count).to eq(2)
-      expect(User.search(user2.username.downcase).to_a.count).to eq(1)
+    it 'returns users with a matching name' do
+      expect(described_class.search(user.name)).to eq([user])
+    end
+
+    it 'returns users with a partially matching name' do
+      expect(described_class.search(user.name[0..2])).to eq([user])
+    end
+
+    it 'returns users with a matching name regardless of the casing' do
+      expect(described_class.search(user.name.upcase)).to eq([user])
+    end
+
+    it 'returns users with a matching Email' do
+      expect(described_class.search(user.email)).to eq([user])
+    end
+
+    it 'returns users with a partially matching Email' do
+      expect(described_class.search(user.email[0..2])).to eq([user])
+    end
+
+    it 'returns users with a matching Email regardless of the casing' do
+      expect(described_class.search(user.email.upcase)).to eq([user])
+    end
+
+    it 'returns users with a matching username' do
+      expect(described_class.search(user.username)).to eq([user])
+    end
+
+    it 'returns users with a partially matching username' do
+      expect(described_class.search(user.username[0..2])).to eq([user])
+    end
+
+    it 'returns users with a matching username regardless of the casing' do
+      expect(described_class.search(user.username.upcase)).to eq([user])
     end
   end
 
@@ -439,6 +459,18 @@ describe User do
       expect(User.by_login(username)).to eq user
       expect(User.by_login(nil)).to be_nil
       expect(User.by_login('')).to be_nil
+    end
+  end
+
+  describe '.find_by_username!' do
+    it 'raises RecordNotFound' do
+      expect { described_class.find_by_username!('JohnDoe') }.
+        to raise_error(ActiveRecord::RecordNotFound)
+    end
+
+    it 'is case-insensitive' do
+      user = create(:user, username: 'JohnDoe')
+      expect(described_class.find_by_username!('JOHNDOE')).to eq user
     end
   end
 
@@ -505,27 +537,39 @@ describe User do
     end
   end
 
-  describe :ldap_user? do
-    it "is true if provider name starts with ldap" do
-      user = create(:omniauth_user, provider: 'ldapmain')
-      expect( user.ldap_user? ).to be_truthy
+  context 'ldap synchronized user' do
+    describe :ldap_user? do
+      it 'is true if provider name starts with ldap' do
+        user = create(:omniauth_user, provider: 'ldapmain')
+        expect(user.ldap_user?).to be_truthy
+      end
+
+      it 'is false for other providers' do
+        user = create(:omniauth_user, provider: 'other-provider')
+        expect(user.ldap_user?).to be_falsey
+      end
+
+      it 'is false if no extern_uid is provided' do
+        user = create(:omniauth_user, extern_uid: nil)
+        expect(user.ldap_user?).to be_falsey
+      end
     end
 
-    it "is false for other providers" do
-      user = create(:omniauth_user, provider: 'other-provider')
-      expect( user.ldap_user? ).to be_falsey
+    describe :ldap_identity do
+      it 'returns ldap identity' do
+        user = create :omniauth_user
+        expect(user.ldap_identity.provider).not_to be_empty
+      end
     end
 
-    it "is false if no extern_uid is provided" do
-      user = create(:omniauth_user, extern_uid: nil)
-      expect( user.ldap_user? ).to be_falsey
-    end
-  end
+    describe '#ldap_block' do
+      let(:user) { create(:omniauth_user, provider: 'ldapmain', name: 'John Smith') }
 
-  describe :ldap_identity do
-    it "returns ldap identity" do
-      user = create :omniauth_user
-      expect(user.ldap_identity.provider).not_to be_empty
+      it 'blocks user flaging the action caming from ldap' do
+        user.ldap_block
+        expect(user.blocked?).to be_truthy
+        expect(user.ldap_blocked?).to be_truthy
+      end
     end
   end
 
@@ -620,28 +664,28 @@ describe User do
       @user1 = create :user, created_at: Date.today - 1, last_sign_in_at: Date.today - 1, name: 'Omega'
     end
 
-    it "sorts users as recently_signed_in" do
+    it "sorts users by the recent sign-in time" do
       expect(User.sort('recent_sign_in').first).to eq(@user)
     end
 
-    it "sorts users as late_signed_in" do
+    it "sorts users by the oldest sign-in time" do
       expect(User.sort('oldest_sign_in').first).to eq(@user1)
     end
 
-    it "sorts users as recently_created" do
+    it "sorts users in descending order by their creation time" do
       expect(User.sort('created_desc').first).to eq(@user)
     end
 
-    it "sorts users as late_created" do
+    it "sorts users in ascending order by their creation time" do
       expect(User.sort('created_asc').first).to eq(@user1)
     end
 
-    it "sorts users by name when nil is passed" do
-      expect(User.sort(nil).first).to eq(@user)
+    it "sorts users by id in descending order when nil is passed" do
+      expect(User.sort(nil).first).to eq(@user1)
     end
   end
 
-  describe "#contributed_projects_ids" do
+  describe "#contributed_projects" do
     subject { create(:user) }
     let!(:project1) { create(:project) }
     let!(:project2) { create(:project, forked_from_project: project3) }
@@ -656,15 +700,15 @@ describe User do
     end
 
     it "includes IDs for projects the user has pushed to" do
-      expect(subject.contributed_projects_ids).to include(project1.id)
+      expect(subject.contributed_projects).to include(project1)
     end
 
     it "includes IDs for projects the user has had merge requests merged into" do
-      expect(subject.contributed_projects_ids).to include(project3.id)
+      expect(subject.contributed_projects).to include(project3)
     end
 
     it "doesn't include IDs for unrelated projects" do
-      expect(subject.contributed_projects_ids).not_to include(project2.id)
+      expect(subject.contributed_projects).not_to include(project2)
     end
   end
 
@@ -682,6 +726,80 @@ describe User do
       end
 
       it { expect(subject.can_be_removed?).to be_falsey }
+    end
+  end
+
+  describe "#recent_push" do
+    subject { create(:user) }
+    let!(:project1) { create(:project) }
+    let!(:project2) { create(:project, forked_from_project: project1) }
+    let!(:push_data) { Gitlab::PushDataBuilder.build_sample(project2, subject) }
+    let!(:push_event) { create(:event, action: Event::PUSHED, project: project2, target: project1, author: subject, data: push_data) }
+
+    before do
+      project1.team << [subject, :master]
+      project2.team << [subject, :master]
+    end
+
+    it "includes push event" do
+      expect(subject.recent_push).to eq(push_event)
+    end
+
+    it "excludes push event if branch has been deleted" do
+      allow_any_instance_of(Repository).to receive(:branch_names).and_return(['foo'])
+
+      expect(subject.recent_push).to eq(nil)
+    end
+
+    it "excludes push event if MR is opened for it" do
+      create(:merge_request, source_project: project2, target_project: project1, source_branch: project2.default_branch, target_branch: 'fix', author: subject)
+
+      expect(subject.recent_push).to eq(nil)
+    end
+  end
+
+  describe '#authorized_groups' do
+    let!(:user) { create(:user) }
+    let!(:private_group) { create(:group) }
+
+    before do
+      private_group.add_user(user, Gitlab::Access::MASTER)
+    end
+
+    subject { user.authorized_groups }
+
+    it { is_expected.to eq([private_group]) }
+  end
+
+  describe '#authorized_projects' do
+    let!(:user) { create(:user) }
+    let!(:private_project) { create(:project, :private) }
+
+    before do
+      private_project.team << [user, Gitlab::Access::MASTER]
+    end
+
+    subject { user.authorized_projects }
+
+    it { is_expected.to eq([private_project]) }
+  end
+
+  describe '#viewable_starred_projects' do
+    let(:user) { create(:user) }
+    let(:public_project) { create(:empty_project, :public) }
+    let(:private_project) { create(:empty_project, :private) }
+    let(:private_viewable_project) { create(:empty_project, :private) }
+
+    before do
+      private_viewable_project.team << [user, Gitlab::Access::MASTER]
+
+      [public_project, private_project, private_viewable_project].each do |project|
+        user.toggle_star(project)
+      end
+    end
+
+    it 'returns only starred projects the user can view' do
+      expect(user.viewable_starred_projects).not_to include(private_project)
     end
   end
 end

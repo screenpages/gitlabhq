@@ -6,12 +6,16 @@ module API
 
     class UserBasic < UserSafe
       expose :id, :state, :avatar_url
+
+      expose :web_url do |user, options|
+        Gitlab::Routing.url_helpers.user_url(user)
+      end
     end
 
     class User < UserBasic
       expose :created_at
       expose :is_admin?, as: :is_admin
-      expose :bio, :skype, :linkedin, :twitter, :website_url
+      expose :bio, :location, :skype, :linkedin, :twitter, :website_url
     end
 
     class Identity < Grape::Entity
@@ -19,16 +23,23 @@ module API
     end
 
     class UserFull < User
+      expose :last_sign_in_at
+      expose :confirmed_at
       expose :email
       expose :theme_id, :color_scheme_id, :projects_limit, :current_sign_in_at
       expose :identities, using: Entities::Identity
       expose :can_create_group?, as: :can_create_group
       expose :can_create_project?, as: :can_create_project
       expose :two_factor_enabled
+      expose :external
     end
 
     class UserLogin < UserFull
       expose :private_token
+    end
+
+    class Email < Grape::Entity
+      expose :id, :email
     end
 
     class Hook < Grape::Entity
@@ -37,10 +48,11 @@ module API
 
     class ProjectHook < Hook
       expose :project_id, :push_events
-      expose :issues_events, :merge_requests_events, :tag_push_events
+      expose :issues_events, :merge_requests_events, :tag_push_events, :note_events, :build_events
+      expose :enable_ssl_verification
     end
 
-    class ForkedFromProject < Grape::Entity
+    class BasicProjectDetails < Grape::Entity
       expose :id
       expose :name, :name_with_namespace
       expose :path, :path_with_namespace
@@ -54,11 +66,17 @@ module API
       expose :owner, using: Entities::UserBasic, unless: ->(project, options) { project.group }
       expose :name, :name_with_namespace
       expose :path, :path_with_namespace
-      expose :issues_enabled, :merge_requests_enabled, :wiki_enabled, :snippets_enabled, :created_at, :last_activity_at
+      expose :issues_enabled, :merge_requests_enabled, :wiki_enabled, :builds_enabled, :snippets_enabled, :container_registry_enabled
+      expose :created_at, :last_activity_at
+      expose :shared_runners_enabled
       expose :creator_id
       expose :namespace
-      expose :forked_from_project, using: Entities::ForkedFromProject, if: lambda{ | project, options | project.forked? }
+      expose :forked_from_project, using: Entities::BasicProjectDetails, if: lambda{ |project, options| project.forked? }
       expose :avatar_url
+      expose :star_count, :forks_count
+      expose :open_issues_count, if: lambda { |project, options| project.issues_enabled? && project.default_issues_tracker? }
+      expose :runners_token, if: lambda { |_project, options| options[:user_can_admin_project] }
+      expose :public_builds
     end
 
     class ProjectMember < UserBasic
@@ -68,7 +86,12 @@ module API
     end
 
     class Group < Grape::Entity
-      expose :id, :name, :path, :description
+      expose :id, :name, :path, :description, :visibility_level
+      expose :avatar_url
+
+      expose :web_url do |group, options|
+        Gitlab::Routing.url_helpers.group_url(group)
+      end
     end
 
     class GroupDetail < Group
@@ -78,25 +101,6 @@ module API
     class GroupMember < UserBasic
       expose :access_level do |user, options|
         options[:group].group_members.find_by(user_id: user.id).access_level
-      end
-    end
-
-    class RepoTag < Grape::Entity
-      expose :name
-      expose :message do |repo_obj, _options|
-        if repo_obj.respond_to?(:message)
-          repo_obj.message
-        else
-          nil
-        end
-      end
-
-      expose :commit do |repo_obj, options|
-        if repo_obj.respond_to?(:commit)
-          repo_obj.commit
-        elsif options[:project]
-          options[:project].repository.commit(repo_obj.target)
-        end
       end
     end
 
@@ -135,12 +139,16 @@ module API
 
     class RepoCommitDetail < RepoCommit
       expose :parent_ids, :committed_date, :authored_date
+      expose :status
     end
 
     class ProjectSnippet < Grape::Entity
       expose :id, :title, :file_name
       expose :author, using: Entities::UserBasic
-      expose :expires_at, :updated_at, :created_at
+      expose :updated_at, :created_at
+
+      # TODO (rspeicher): Deprecated; remove in 9.0
+      expose(:expires_at) { |snippet| nil }
     end
 
     class ProjectEntity < Grape::Entity
@@ -163,20 +171,32 @@ module API
       expose :label_names, as: :labels
       expose :milestone, using: Entities::Milestone
       expose :assignee, :author, using: Entities::UserBasic
+      expose :subscribed do |issue, options|
+        issue.subscribed?(options[:current_user])
+      end
+      expose :user_notes_count
     end
 
     class MergeRequest < ProjectEntity
-      expose :target_branch, :source_branch, :upvotes, :downvotes
+      expose :target_branch, :source_branch
+      expose :upvotes,  :downvotes
       expose :author, :assignee, using: Entities::UserBasic
       expose :source_project_id, :target_project_id
       expose :label_names, as: :labels
       expose :description
+      expose :work_in_progress?, as: :work_in_progress
       expose :milestone, using: Entities::Milestone
+      expose :merge_when_build_succeeds
+      expose :merge_status
+      expose :subscribed do |merge_request, options|
+        merge_request.subscribed?(options[:current_user])
+      end
+      expose :user_notes_count
     end
 
     class MergeRequestChanges < MergeRequest
       expose :diffs, as: :changes, using: Entities::RepoDiff do |compare, _|
-        compare.diffs
+        compare.diffs(all_diffs: true).to_a
       end
     end
 
@@ -184,12 +204,21 @@ module API
       expose :id, :title, :key, :created_at
     end
 
+    class SSHKeyWithUser < SSHKey
+      expose :user, using: Entities::UserFull
+    end
+
     class Note < Grape::Entity
       expose :id
       expose :note, as: :body
       expose :attachment_identifier, as: :attachment
       expose :author, using: Entities::UserBasic
-      expose :created_at
+      expose :created_at, :updated_at
+      expose :system?, as: :system
+      expose :noteable_id, :noteable_type
+      # upvote? and downvote? are deprecated, always return false
+      expose :upvote?, as: :upvote
+      expose :downvote?, as: :downvote
     end
 
     class MRNote < Grape::Entity
@@ -199,9 +228,16 @@ module API
 
     class CommitNote < Grape::Entity
       expose :note
-      expose(:path) { |note| note.diff_file_name }
-      expose(:line) { |note| note.diff_new_line }
-      expose(:line_type) { |note| note.diff_line_type }
+      expose(:path) { |note| note.diff_file_path if note.legacy_diff_note? }
+      expose(:line) { |note| note.diff_new_line if note.legacy_diff_note? }
+      expose(:line_type) { |note| note.diff_line_type if note.legacy_diff_note? }
+      expose :author, using: Entities::UserBasic
+      expose :created_at
+    end
+
+    class CommitStatus < Grape::Entity
+      expose :id, :sha, :ref, :status, :name, :target_url, :description,
+             :created_at, :started_at, :finished_at, :allow_failure
       expose :author, using: Entities::UserBasic
     end
 
@@ -210,6 +246,8 @@ module API
       expose :target_id, :target_type, :author_id
       expose :data, :target_title
       expose :created_at
+      expose :note, using: Entities::Note, if: ->(event, options) { event.note? }
+      expose :author, using: Entities::UserBasic, if: ->(event, options) { event.author }
 
       expose :author_username do |event, options|
         if event.author
@@ -218,18 +256,39 @@ module API
       end
     end
 
+    class ProjectGroupLink < Grape::Entity
+      expose :id, :project_id, :group_id, :group_access
+    end
+
     class Namespace < Grape::Entity
       expose :id, :path, :kind
     end
 
-    class ProjectAccess < Grape::Entity
+    class Member < Grape::Entity
       expose :access_level
-      expose :notification_level
+      expose :notification_level do |member, options|
+        if member.notification_setting
+          NotificationSetting.levels[member.notification_setting.level]
+        end
+      end
     end
 
-    class GroupAccess < Grape::Entity
-      expose :access_level
-      expose :notification_level
+    class ProjectAccess < Member
+    end
+
+    class GroupAccess < Member
+    end
+
+    class ProjectService < Grape::Entity
+      expose :id, :title, :created_at, :updated_at, :active
+      expose :push_events, :issues_events, :merge_requests_events, :tag_push_events, :note_events, :build_events
+      # Expose serialized properties
+      expose :properties do |service, options|
+        field_names = service.fields.
+          select { |field| options[:include_passwords] || field[:type] != 'password' }.
+          map { |field| field[:name] }
+        service.properties.slice(*field_names)
+      end
     end
 
     class ProjectWithAccess < Project
@@ -247,7 +306,12 @@ module API
     end
 
     class Label < Grape::Entity
-      expose :name, :color
+      expose :name, :color, :description
+      expose :open_issues_count, :closed_issues_count, :open_merge_requests_count
+
+      expose :subscribed do |label, options|
+        label.subscribed?(options[:current_user])
+      end
     end
 
     class Compare < Grape::Entity
@@ -260,11 +324,11 @@ module API
       end
 
       expose :diffs, using: Entities::RepoDiff do |compare, options|
-        compare.diffs
+        compare.diffs(all_diffs: true).to_a
       end
 
       expose :compare_timeout do |compare, options|
-        compare.timeout
+        compare.diffs.overflow?
       end
 
       expose :same, as: :compare_same_ref
@@ -289,15 +353,109 @@ module API
       expose :updated_at
       expose :home_page_url
       expose :default_branch_protection
-      expose :twitter_sharing_enabled
       expose :restricted_visibility_levels
       expose :max_attachment_size
       expose :session_expire_delay
       expose :default_project_visibility
       expose :default_snippet_visibility
+      expose :default_group_visibility
       expose :restricted_signup_domains
       expose :user_oauth_applications
       expose :after_sign_out_path
+    end
+
+    class Release < Grape::Entity
+      expose :tag, as: :tag_name
+      expose :description
+    end
+
+    class RepoTag < Grape::Entity
+      expose :name
+      expose :message do |repo_obj, _options|
+        if repo_obj.respond_to?(:message)
+          repo_obj.message
+        else
+          nil
+        end
+      end
+
+      expose :commit do |repo_obj, options|
+        if repo_obj.respond_to?(:commit)
+          repo_obj.commit
+        elsif options[:project]
+          options[:project].repository.commit(repo_obj.target)
+        end
+      end
+
+      expose :release, using: Entities::Release do |repo_obj, options|
+        if options[:project]
+          options[:project].releases.find_by(tag: repo_obj.name)
+        end
+      end
+    end
+
+    class TriggerRequest < Grape::Entity
+      expose :id, :variables
+    end
+
+    class Runner < Grape::Entity
+      expose :id
+      expose :description
+      expose :active
+      expose :is_shared
+      expose :name
+    end
+
+    class RunnerDetails < Runner
+      expose :tag_list
+      expose :run_untagged
+      expose :version, :revision, :platform, :architecture
+      expose :contacted_at
+      expose :token, if: lambda { |runner, options| options[:current_user].is_admin? || !runner.is_shared? }
+      expose :projects, with: Entities::BasicProjectDetails do |runner, options|
+        if options[:current_user].is_admin?
+          runner.projects
+        else
+          options[:current_user].authorized_projects.where(id: runner.projects)
+        end
+      end
+    end
+
+    class BuildArtifactFile < Grape::Entity
+      expose :filename, :size
+    end
+
+    class Build < Grape::Entity
+      expose :id, :status, :stage, :name, :ref, :tag, :coverage
+      expose :created_at, :started_at, :finished_at
+      expose :user, with: User
+      expose :artifacts_file, using: BuildArtifactFile, if: -> (build, opts) { build.artifacts? }
+      expose :commit, with: RepoCommit do |repo_obj, _options|
+        if repo_obj.respond_to?(:commit)
+          repo_obj.commit.commit_data
+        end
+      end
+      expose :runner, with: Runner
+    end
+
+    class Trigger < Grape::Entity
+      expose :token, :created_at, :updated_at, :deleted_at, :last_used
+    end
+
+    class Variable < Grape::Entity
+      expose :key, :value
+    end
+
+    class RepoLicense < Grape::Entity
+      expose :key, :name, :nickname
+      expose :featured, as: :popular
+      expose :url, as: :html_url
+      expose(:source_url) { |license| license.meta['source'] }
+      expose(:description) { |license| license.meta['description'] }
+      expose(:conditions) { |license| license.meta['conditions'] }
+      expose(:permissions) { |license| license.meta['permissions'] }
+      expose(:limitations) { |license| license.meta['limitations'] }
+      expose :content
     end
   end
 end

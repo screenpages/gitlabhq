@@ -1,7 +1,14 @@
 class HelpController < ApplicationController
+  skip_before_action :authenticate_user!, :reject_blocked
+
   layout 'help'
 
   def index
+    @help_index = File.read(Rails.root.join('doc', 'README.md'))
+
+    # Prefix Markdown links with `help/` unless they already have been
+    # See http://rubular.com/r/nwwhzH6Z8X
+    @help_index.gsub!(/(\]\()(?!help\/)([^\)\(]+)(\))/, '\1help/\2\3')
   end
 
   def show
@@ -10,7 +17,8 @@ class HelpController < ApplicationController
 
     respond_to do |format|
       format.any(:markdown, :md, :html) do
-        path = Rails.root.join('doc', @category, "#{@file}.md")
+        # Note: We are purposefully NOT using `Rails.root.join`
+        path = File.join(Rails.root, 'doc', @category, "#{@file}.md")
 
         if File.exist?(path)
           @markdown = File.read(path)
@@ -24,7 +32,8 @@ class HelpController < ApplicationController
 
       # Allow access to images in the doc folder
       format.any(:png, :gif, :jpeg) do
-        path = Rails.root.join('doc', @category, "#{@file}.#{params[:format]}")
+        # Note: We are purposefully NOT using `Rails.root.join`
+        path = File.join(Rails.root, 'doc', @category, "#{@file}.#{params[:format]}")
 
         if File.exist?(path)
           send_file(path, disposition: 'inline')
@@ -42,6 +51,7 @@ class HelpController < ApplicationController
   end
 
   def ui
+    @user = User.new(id: 0, name: 'John Doe', username: '@johndoe')
   end
 
   private

@@ -6,8 +6,8 @@ describe API::API, api: true  do
   let(:user2) { create(:user) }
   let(:user3) { create(:user) }
   let(:project) { create(:project, creator_id: user.id, namespace: user.namespace) }
-  let(:project_member) { create(:project_member, user: user, project: project, access_level: ProjectMember::MASTER) }
-  let(:project_member2) { create(:project_member, user: user3, project: project, access_level: ProjectMember::DEVELOPER) }
+  let(:project_member) { create(:project_member, :master, user: user, project: project) }
+  let(:project_member2) { create(:project_member, :developer, user: user3, project: project) }
 
   describe "GET /projects/:id/members" do
     before { project_member }
@@ -118,8 +118,10 @@ describe API::API, api: true  do
   end
 
   describe "DELETE /projects/:id/members/:user_id" do
-    before { project_member }
-    before { project_member2 }
+    before do
+      project_member
+      project_member2
+    end
 
     it "should remove user from project team" do
       expect do
@@ -132,6 +134,7 @@ describe API::API, api: true  do
       expect do
         delete api("/projects/#{project.id}/members/#{user3.id}", user)
       end.to_not change { ProjectMember.count }
+      expect(response.status).to eq(200)
     end
 
     it "should return 200 if team member already removed" do
@@ -145,8 +148,19 @@ describe API::API, api: true  do
         delete api("/projects/#{project.id}/members/1000000", user)
       end.to change { ProjectMember.count }.by(0)
       expect(response.status).to eq(200)
-      expect(json_response['message']).to eq("Access revoked")
       expect(json_response['id']).to eq(1000000)
+      expect(json_response['message']).to eq('Access revoked')
+    end
+
+    context 'when the user is not an admin or owner' do
+      it 'can leave the project' do
+        expect do
+          delete api("/projects/#{project.id}/members/#{user3.id}", user3)
+        end.to change { ProjectMember.count }.by(-1)
+
+        expect(response.status).to eq(200)
+        expect(json_response['id']).to eq(project_member2.id)
+      end
     end
   end
 end

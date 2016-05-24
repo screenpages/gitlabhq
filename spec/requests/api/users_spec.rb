@@ -6,6 +6,10 @@ describe API::API, api: true  do
   let(:user)  { create(:user) }
   let(:admin) { create(:admin) }
   let(:key)   { create(:key, user: user) }
+  let(:email)   { create(:email, user: user) }
+  let(:omniauth_user) { create(:omniauth_user) }
+  let(:ldap_user) { create(:omniauth_user, provider: 'ldapmain') }
+  let(:ldap_blocked_user) { create(:omniauth_user, provider: 'ldapmain', state: 'ldap_blocked') }
 
   describe "GET /users" do
     context "when unauthenticated" do
@@ -16,6 +20,24 @@ describe API::API, api: true  do
     end
 
     context "when authenticated" do
+      #These specs are written just in case API authentication is not required anymore
+      context "when public level is restricted" do
+        before do
+          stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::PUBLIC])
+          allow_any_instance_of(API::Helpers).to receive(:authenticate!).and_return(true)
+        end
+
+        it "renders 403" do
+          get api("/users")
+          expect(response.status).to eq(403)
+        end
+
+        it "renders 404" do
+          get api("/users/#{user.id}")
+          expect(response.status).to eq(404)
+        end
+      end
+
       it "should return an array of users" do
         get api("/users", user)
         expect(response.status).to eq(200)
@@ -24,6 +46,13 @@ describe API::API, api: true  do
         expect(json_response.detect do |user|
           user['username'] == username
         end['username']).to eq(username)
+      end
+
+      it "should return one user" do
+        get api("/users?username=#{omniauth_user.username}", user)
+        expect(response.status).to eq(200)
+        expect(json_response).to be_an Array
+        expect(json_response.first['username']).to eq(omniauth_user.username)
       end
     end
 
@@ -36,6 +65,8 @@ describe API::API, api: true  do
         expect(json_response.first.keys).to include 'identities'
         expect(json_response.first.keys).to include 'can_create_project'
         expect(json_response.first.keys).to include 'two_factor_enabled'
+        expect(json_response.first.keys).to include 'last_sign_in_at'
+        expect(json_response.first.keys).to include 'confirmed_at'
       end
     end
   end
@@ -56,6 +87,11 @@ describe API::API, api: true  do
       get api("/users/9999", user)
       expect(response.status).to eq(404)
       expect(json_response['message']).to eq('404 Not found')
+    end
+
+    it "should return a 404 if invalid ID" do
+      get api("/users/1ASDF", user)
+      expect(response.status).to eq(404)
     end
   end
 
@@ -102,6 +138,26 @@ describe API::API, api: true  do
       expect(response.status).to eq(201)
     end
 
+    it 'creates non-external users by default' do
+      post api("/users", admin), attributes_for(:user)
+      expect(response.status).to eq(201)
+
+      user_id = json_response['id']
+      new_user = User.find(user_id)
+      expect(new_user).not_to eq nil
+      expect(new_user.external).to be_falsy
+    end
+
+    it 'should allow an external user to be created' do
+      post api("/users", admin), attributes_for(:user, external: true)
+      expect(response.status).to eq(201)
+
+      user_id = json_response['id']
+      new_user = User.find(user_id)
+      expect(new_user).not_to eq nil
+      expect(new_user.external).to be_truthy
+    end
+
     it "should not create user with invalid email" do
       post api('/users', admin),
         email: 'invalid email',
@@ -146,7 +202,7 @@ describe API::API, api: true  do
       expect(json_response['message']['projects_limit']).
         to eq(['must be greater than or equal to 0'])
       expect(json_response['message']['username']).
-        to eq([Gitlab::Regex.send(:namespace_regex_message)])
+        to eq([Gitlab::Regex.namespace_regex_message])
     end
 
     it "shouldn't available for non admin users" do
@@ -224,11 +280,31 @@ describe API::API, api: true  do
       expect(user.reload.username).to eq(user.username)
     end
 
+    it "should update user's existing identity" do
+      put api("/users/#{omniauth_user.id}", admin), provider: 'ldapmain', extern_uid: '654321'
+      expect(response.status).to eq(200)
+      expect(omniauth_user.reload.identities.first.extern_uid).to eq('654321')
+    end
+
+    it 'should update user with new identity' do
+      put api("/users/#{user.id}", admin), provider: 'github', extern_uid: '67890'
+      expect(response.status).to eq(200)
+      expect(user.reload.identities.first.extern_uid).to eq('67890')
+      expect(user.reload.identities.first.provider).to eq('github')
+    end
+
     it "should update admin status" do
       put api("/users/#{user.id}", admin), { admin: true }
       expect(response.status).to eq(200)
       expect(json_response['is_admin']).to eq(true)
       expect(user.reload.admin).to eq(true)
+    end
+
+    it "should update external status" do
+      put api("/users/#{user.id}", admin), { external: true }
+      expect(response.status).to eq 200
+      expect(json_response['external']).to eq(true)
+      expect(user.reload.external?).to be_truthy
     end
 
     it "should not update admin status" do
@@ -256,6 +332,10 @@ describe API::API, api: true  do
       expect(json_response['message']).to eq('404 Not found')
     end
 
+    it "should raise error for invalid ID" do
+      expect{put api("/users/ASDF", admin) }.to raise_error(ActionController::RoutingError)
+    end
+
     it 'should return 400 error if user does not validate' do
       put api("/users/#{user.id}", admin),
         password: 'pass',
@@ -272,7 +352,7 @@ describe API::API, api: true  do
       expect(json_response['message']['projects_limit']).
         to eq(['must be greater than or equal to 0'])
       expect(json_response['message']['username']).
-        to eq([Gitlab::Regex.send(:namespace_regex_message)])
+        to eq([Gitlab::Regex.namespace_regex_message])
     end
 
     context "with existing user" do
@@ -318,6 +398,11 @@ describe API::API, api: true  do
         post api("/users/#{user.id}/keys", admin), key_attrs
       end.to change{ user.keys.count }.by(1)
     end
+
+    it "should return 405 for invalid ID" do
+      post api("/users/ASDF/keys", admin)
+      expect(response.status).to eq(405)
+    end
   end
 
   describe 'GET /user/:uid/keys' do
@@ -344,6 +429,11 @@ describe API::API, api: true  do
         expect(response.status).to eq(200)
         expect(json_response).to be_an Array
         expect(json_response.first['title']).to eq(key.title)
+      end
+
+      it "should return 405 for invalid ID" do
+        get api("/users/ASDF/keys", admin)
+        expect(response.status).to eq(405)
       end
     end
   end
@@ -384,6 +474,101 @@ describe API::API, api: true  do
     end
   end
 
+  describe "POST /users/:id/emails" do
+    before { admin }
+
+    it "should not create invalid email" do
+      post api("/users/#{user.id}/emails", admin), {}
+      expect(response.status).to eq(400)
+      expect(json_response['message']).to eq('400 (Bad request) "email" not given')
+    end
+
+    it "should create email" do
+      email_attrs = attributes_for :email
+      expect do
+        post api("/users/#{user.id}/emails", admin), email_attrs
+      end.to change{ user.emails.count }.by(1)
+    end
+
+    it "should raise error for invalid ID" do
+      post api("/users/ASDF/emails", admin)
+      expect(response.status).to eq(405)
+    end
+  end
+
+  describe 'GET /user/:uid/emails' do
+    before { admin }
+
+    context 'when unauthenticated' do
+      it 'should return authentication error' do
+        get api("/users/#{user.id}/emails")
+        expect(response.status).to eq(401)
+      end
+    end
+
+    context 'when authenticated' do
+      it 'should return 404 for non-existing user' do
+        get api('/users/999999/emails', admin)
+        expect(response.status).to eq(404)
+        expect(json_response['message']).to eq('404 User Not Found')
+      end
+
+      it 'should return array of emails' do
+        user.emails << email
+        user.save
+        get api("/users/#{user.id}/emails", admin)
+        expect(response.status).to eq(200)
+        expect(json_response).to be_an Array
+        expect(json_response.first['email']).to eq(email.email)
+      end
+
+      it "should raise error for invalid ID" do
+        put api("/users/ASDF/emails", admin)
+        expect(response.status).to eq(405)
+      end
+    end
+  end
+
+  describe 'DELETE /user/:uid/emails/:id' do
+    before { admin }
+
+    context 'when unauthenticated' do
+      it 'should return authentication error' do
+        delete api("/users/#{user.id}/emails/42")
+        expect(response.status).to eq(401)
+      end
+    end
+
+    context 'when authenticated' do
+      it 'should delete existing email' do
+        user.emails << email
+        user.save
+        expect do
+          delete api("/users/#{user.id}/emails/#{email.id}", admin)
+        end.to change { user.emails.count }.by(-1)
+        expect(response.status).to eq(200)
+      end
+
+      it 'should return 404 error if user not found' do
+        user.emails << email
+        user.save
+        delete api("/users/999999/emails/#{email.id}", admin)
+        expect(response.status).to eq(404)
+        expect(json_response['message']).to eq('404 User Not Found')
+      end
+
+      it 'should return 404 error if email not foud' do
+        delete api("/users/#{user.id}/emails/42", admin)
+        expect(response.status).to eq(404)
+        expect(json_response['message']).to eq('404 Email Not Found')
+      end
+
+      it "should raise error for invalid ID" do
+        expect{delete api("/users/ASDF/emails/bar", admin) }.to raise_error(ActionController::RoutingError)
+      end
+    end
+  end
+
   describe "DELETE /users/:id" do
     before { admin }
 
@@ -408,6 +593,10 @@ describe API::API, api: true  do
       delete api("/users/999999", admin)
       expect(response.status).to eq(404)
       expect(json_response['message']).to eq('404 User Not Found')
+    end
+
+    it "should raise error for invalid ID" do
+      expect{delete api("/users/ASDF", admin) }.to raise_error(ActionController::RoutingError)
     end
   end
 
@@ -471,6 +660,11 @@ describe API::API, api: true  do
       expect(response.status).to eq(404)
       expect(json_response['message']).to eq('404 Not found')
     end
+
+    it "should return 404 for invalid ID" do
+      get api("/users/keys/ASDF", admin)
+      expect(response.status).to eq(404)
+    end
   end
 
   describe "POST /user/keys" do
@@ -526,6 +720,108 @@ describe API::API, api: true  do
       delete api("/user/keys/#{key.id}")
       expect(response.status).to eq(401)
     end
+
+    it "should raise error for invalid ID" do
+      expect{delete api("/users/keys/ASDF", admin) }.to raise_error(ActionController::RoutingError)
+    end
+  end
+
+  describe "GET /user/emails" do
+    context "when unauthenticated" do
+      it "should return authentication error" do
+        get api("/user/emails")
+        expect(response.status).to eq(401)
+      end
+    end
+
+    context "when authenticated" do
+      it "should return array of emails" do
+        user.emails << email
+        user.save
+        get api("/user/emails", user)
+        expect(response.status).to eq(200)
+        expect(json_response).to be_an Array
+        expect(json_response.first["email"]).to eq(email.email)
+      end
+    end
+  end
+
+  describe "GET /user/emails/:id" do
+    it "should return single email" do
+      user.emails << email
+      user.save
+      get api("/user/emails/#{email.id}", user)
+      expect(response.status).to eq(200)
+      expect(json_response["email"]).to eq(email.email)
+    end
+
+    it "should return 404 Not Found within invalid ID" do
+      get api("/user/emails/42", user)
+      expect(response.status).to eq(404)
+      expect(json_response['message']).to eq('404 Not found')
+    end
+
+    it "should return 404 error if admin accesses user's email" do
+      user.emails << email
+      user.save
+      admin
+      get api("/user/emails/#{email.id}", admin)
+      expect(response.status).to eq(404)
+      expect(json_response['message']).to eq('404 Not found')
+    end
+
+    it "should return 404 for invalid ID" do
+      get api("/users/emails/ASDF", admin)
+      expect(response.status).to eq(404)
+    end
+  end
+
+  describe "POST /user/emails" do
+    it "should create email" do
+      email_attrs = attributes_for :email
+      expect do
+        post api("/user/emails", user), email_attrs
+      end.to change{ user.emails.count }.by(1)
+      expect(response.status).to eq(201)
+    end
+
+    it "should return a 401 error if unauthorized" do
+      post api("/user/emails"), email: 'some email'
+      expect(response.status).to eq(401)
+    end
+
+    it "should not create email with invalid email" do
+      post api("/user/emails", user), {}
+      expect(response.status).to eq(400)
+      expect(json_response['message']).to eq('400 (Bad request) "email" not given')
+    end
+  end
+
+  describe "DELETE /user/emails/:id" do
+    it "should delete existed email" do
+      user.emails << email
+      user.save
+      expect do
+        delete api("/user/emails/#{email.id}", user)
+      end.to change{user.emails.count}.by(-1)
+      expect(response.status).to eq(200)
+    end
+
+    it "should return success if email ID not found" do
+      delete api("/user/emails/42", user)
+      expect(response.status).to eq(200)
+    end
+
+    it "should return 401 error if unauthorized" do
+      user.emails << email
+      user.save
+      delete api("/user/emails/#{email.id}")
+      expect(response.status).to eq(401)
+    end
+
+    it "should raise error for invalid ID" do
+      expect{delete api("/users/emails/ASDF", admin) }.to raise_error(ActionController::RoutingError)
+    end
   end
 
   describe 'PUT /user/:id/block' do
@@ -534,6 +830,12 @@ describe API::API, api: true  do
       put api("/users/#{user.id}/block", admin)
       expect(response.status).to eq(200)
       expect(user.reload.state).to eq('blocked')
+    end
+
+    it 'should not re-block ldap blocked users' do
+      put api("/users/#{ldap_blocked_user.id}/block", admin)
+      expect(response.status).to eq(403)
+      expect(ldap_blocked_user.reload.state).to eq('ldap_blocked')
     end
 
     it 'should not be available for non admin users' do
@@ -550,7 +852,9 @@ describe API::API, api: true  do
   end
 
   describe 'PUT /user/:id/unblock' do
+    let(:blocked_user)  { create(:user, state: 'blocked') }
     before { admin }
+
     it 'should unblock existing user' do
       put api("/users/#{user.id}/unblock", admin)
       expect(response.status).to eq(200)
@@ -558,12 +862,15 @@ describe API::API, api: true  do
     end
 
     it 'should unblock a blocked user' do
-      put api("/users/#{user.id}/block", admin)
+      put api("/users/#{blocked_user.id}/unblock", admin)
       expect(response.status).to eq(200)
-      expect(user.reload.state).to eq('blocked')
-      put api("/users/#{user.id}/unblock", admin)
-      expect(response.status).to eq(200)
-      expect(user.reload.state).to eq('active')
+      expect(blocked_user.reload.state).to eq('active')
+    end
+
+    it 'should not unblock ldap blocked users' do
+      put api("/users/#{ldap_blocked_user.id}/unblock", admin)
+      expect(response.status).to eq(403)
+      expect(ldap_blocked_user.reload.state).to eq('ldap_blocked')
     end
 
     it 'should not be available for non admin users' do
@@ -576,6 +883,10 @@ describe API::API, api: true  do
       put api('/users/9999/block', admin)
       expect(response.status).to eq(404)
       expect(json_response['message']).to eq('404 User Not Found')
+    end
+
+    it "should raise error for invalid ID" do
+      expect{put api("/users/ASDF/block", admin) }.to raise_error(ActionController::RoutingError)
     end
   end
 end

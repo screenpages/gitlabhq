@@ -20,10 +20,27 @@
 
 require 'spec_helper'
 
-describe BuildkiteService do
+describe BuildkiteService, models: true do
   describe 'Associations' do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
+  end
+
+  describe 'Validations' do
+    context 'when service is active' do
+      before { subject.active = true }
+
+      it { is_expected.to validate_presence_of(:project_url) }
+      it { is_expected.to validate_presence_of(:token) }
+      it_behaves_like 'issue tracker service URL attribute', :project_url
+    end
+
+    context 'when service is inactive' do
+      before { subject.active = false }
+
+      it { is_expected.not_to validate_presence_of(:project_url) }
+      it { is_expected.not_to validate_presence_of(:token) }
+    end
   end
 
   describe 'commits methods' do
@@ -61,20 +78,6 @@ describe BuildkiteService do
         expect(@service.build_page('2ab7834c', nil)).to eq(
           'https://buildkite.com/account-name/example-project/builds?commit=2ab7834c'
         )
-      end
-    end
-
-    describe :builds_page do
-      it 'returns the correct path to the builds page' do
-        expect(@service.builds_path).to eq(
-          'https://buildkite.com/account-name/example-project/builds?branch=default-brancho'
-        )
-      end
-    end
-
-    describe :status_img_path do
-      it 'returns the correct path to the status image' do
-        expect(@service.status_img_path).to eq('https://badge.buildkite.com/secret-sauce-status-token.svg')
       end
     end
   end

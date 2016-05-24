@@ -8,6 +8,7 @@
 * [Multiple underscores in words](#multiple-underscores-in-words)
 * [URL auto-linking](#url-auto-linking)
 * [Code and Syntax Highlighting](#code-and-syntax-highlighting)
+* [Inline Diff](#inline-diff)
 * [Emoji](#emoji)
 * [Special GitLab references](#special-gitlab-references)
 * [Task lists](#task-lists)
@@ -29,11 +30,12 @@
 
 ## GitLab Flavored Markdown (GFM)
 
-For GitLab we developed something we call "GitLab Flavored Markdown" (GFM). It extends the standard Markdown in a few significant ways to add some useful functionality.
+_GitLab uses the [Redcarpet Ruby library][redcarpet] for Markdown processing._
+
+GitLab uses "GitLab Flavored Markdown" (GFM). It extends the standard Markdown in a few significant ways to add some useful functionality. It was inspired by [GitHub Flavored Markdown](https://help.github.com/articles/basic-writing-and-formatting-syntax/).
 
 You can use GFM in
 
-- commit messages
 - comments
 - issues
 - merge requests
@@ -44,12 +46,12 @@ You can also use other rich text files in GitLab. You might have to install a de
 
 ## Newlines
 
-GFM honors the markdown specification in how [paragraphs and line breaks are handled](http://daringfireball.net/projects/markdown/syntax#p).
+GFM honors the markdown specification in how [paragraphs and line breaks are handled](https://daringfireball.net/projects/markdown/syntax#p).
 
-A paragraph is simply one or more consecutive lines of text, separated by one or more blank lines.  
+A paragraph is simply one or more consecutive lines of text, separated by one or more blank lines.
 Line-breaks, or softreturns, are rendered if you end a line with two or more spaces
 
-    Roses are red [followed by two or more spaces]  
+    Roses are red [followed by two or more spaces]
     Violets are blue
 
     Sugar is sweet
@@ -66,21 +68,21 @@ It is not reasonable to italicize just _part_ of a word, especially when you're 
     perform_complicated_task
     do_this_and_do_that_and_another_thing
 
-perform_complicated_task  
+perform_complicated_task
 do_this_and_do_that_and_another_thing
 
 ## URL auto-linking
 
 GFM will autolink almost any URL you copy and paste into your text.
 
-    * http://www.google.com
+    * https://www.google.com
     * https://google.com/
     * ftp://ftp.us.debian.org/debian/
     * smb://foo/bar/baz
     * irc://irc.freenode.net/gitlab
     * http://localhost:3000
 
-* http://www.google.com
+* https://www.google.com
 * https://google.com/
 * ftp://ftp.us.debian.org/debian/
 * smb://foo/bar/baz
@@ -88,6 +90,9 @@ GFM will autolink almost any URL you copy and paste into your text.
 * http://localhost:3000
 
 ## Code and Syntax Highlighting
+
+_GitLab uses the [Rouge Ruby library][rouge] for syntax highlighting. For a
+list of supported languages visit the Rouge website._
 
 Blocks of code are either fenced by lines with three back-ticks <code>```</code>, or are indented with four spaces. Only the fenced code blocks support syntax highlighting.
 
@@ -149,6 +154,19 @@ s = "There is no highlighting for this."
 But let's throw in a <b>tag</b>.
 ```
 
+## Inline Diff
+
+With inline diffs tags you can display {+ additions +} or [- deletions -].
+
+The wrapping tags can be either curly braces or square brackets [+ additions +] or {- deletions -}.
+
+However the wrapping tags cannot be mixed as such:
+
+- {+ additions +]
+- [+ additions +}
+- {- deletions -]
+- [- deletions -}
+
 ## Emoji
 
 	Sometimes you want to :monkey: around a bit and add some :star2: to your :speech_balloon:. Well we have a gift for you:
@@ -181,20 +199,23 @@ GFM will turn that reference into a link so you can navigate between them easily
 
 GFM will recognize the following:
 
-| input                  | references                 |
-|:-----------------------|:---------------------------|
-| `@user_name`           | specific user              |
-| `@group_name`          | specific group             |
-| `@all`                 | entire team                |
-| `#123`                 | issue                      |
-| `!123`                 | merge request              |
-| `$123`                 | snippet                    |
-| `~123`                 | label by ID                |
-| `~bug`                 | one-word label by name     |
-| `~"feature request"`   | multi-word label by name   |
-| `9ba12248`             | specific commit            |
-| `9ba12248...b19a04f5`  | commit range comparison    |
-| `[README](doc/README)` | repository file references |
+| input                  | references                   |
+|:-----------------------|:---------------------------  |
+| `@user_name`           | specific user                |
+| `@group_name`          | specific group               |
+| `@all`                 | entire team                  |
+| `#123`                 | issue                        |
+| `!123`                 | merge request                |
+| `$123`                 | snippet                      |
+| `~123`                 | label by ID                  |
+| `~bug`                 | one-word label by name       |
+| `~"feature request"`   | multi-word label by name     |
+| `%123`                 | milestone by ID              |
+| `%v1.23`               | one-word milestone by name   |
+| `%"release candidate"` | multi-word milestone by name |
+| `9ba12248`             | specific commit              |
+| `9ba12248...b19a04f5`  | commit range comparison      |
+| `[README](doc/README)` | repository file references   |
 
 GFM also recognizes certain cross-project references:
 
@@ -202,9 +223,11 @@ GFM also recognizes certain cross-project references:
 |:----------------------------------------|:------------------------|
 | `namespace/project#123`                 | issue                   |
 | `namespace/project!123`                 | merge request           |
+| `namespace/project%123`                 | milestone               |
 | `namespace/project$123`                 | snippet                 |
 | `namespace/project@9ba12248`            | specific commit         |
 | `namespace/project@9ba12248...b19a04f5` | commit range comparison |
+| `namespace/project~"Some label"`        | issues with given label |
 
 ## Task Lists
 
@@ -275,7 +298,7 @@ The IDs are generated from the content of the header according to the following 
 1. All spaces are converted to hyphens
 1. Two or more hyphens in a row are converted to one
 1. If a header with the same ID has already been generated, a unique
-   incrementing number is appended.
+   incrementing number is appended, starting at 1.
 
 For example:
 
@@ -292,8 +315,8 @@ Would generate the following link IDs:
 1. `this-header-has-spaces-in-it`
 1. `this-header-has-a-in-it`
 1. `this-header-has-unicode-in-it-한글`
+1. `this-header-has-spaces-in-it`
 1. `this-header-has-spaces-in-it-1`
-1. `this-header-has-spaces-in-it-2`
 
 Note that the Emoji processing happens before the header IDs are generated, so the Emoji is converted to an image which then gets removed from the ID.
 
@@ -391,13 +414,13 @@ There are two ways to create links, inline-style and reference-style.
 
     [arbitrary case-insensitive reference text]: https://www.mozilla.org
     [1]: http://slashdot.org
-    [link text itself]: http://www.reddit.com
+    [link text itself]: https://www.reddit.com
 
 [I'm an inline-style link](https://www.google.com)
 
 [I'm a reference-style link][Arbitrary case-insensitive reference text]
 
-[I'm a relative reference to a repository file](LICENSE)
+[I'm a relative reference to a repository file](LICENSE)[^1]
 
 [You can use numbers for reference-style link definitions][1]
 
@@ -407,13 +430,13 @@ Some text to show that the reference links can follow later.
 
 [arbitrary case-insensitive reference text]: https://www.mozilla.org
 [1]: http://slashdot.org
-[link text itself]: http://www.reddit.com
+[link text itself]: https://www.reddit.com
 
 **Note**
 
 Relative links do not allow referencing project files in a wiki page or wiki page in a project file. The reason for this is that, in GitLab, wiki is always a separate git repository. For example:
 
-`[I'm a reference-style link][style]`
+`[I'm a reference-style link](style)`
 
 will point the link to `wikis/style` when the link is inside of a wiki markdown file.
 
@@ -422,24 +445,24 @@ will point the link to `wikis/style` when the link is inside of a wiki markdown 
     Here's our logo (hover to see the title text):
 
     Inline-style:
-    ![alt text](assets/logo-white.png)
+    ![alt text](img/logo.png)
 
     Reference-style:
     ![alt text1][logo]
 
-    [logo]: assets/logo-white.png
+    [logo]: img/logo.png
 
 Here's our logo:
 
 Inline-style:
 
-![alt text](/assets/logo-white.png)
+![alt text](img/logo.png)
 
 Reference-style:
 
 ![alt text][logo]
 
-[logo]: /assets/logo-white.png
+[logo]: img/logo.png
 
 ## Blockquotes
 
@@ -584,5 +607,9 @@ By including colons in the header row, you can align the text within that column
 ## References
 
 - This document leveraged heavily from the [Markdown-Cheatsheet](https://github.com/adam-p/markdown-here/wiki/Markdown-Cheatsheet).
-- The [Markdown Syntax Guide](http://daringfireball.net/projects/markdown/syntax) at Daring Fireball is an excellent resource for a detailed explanation of standard markdown.
+- The [Markdown Syntax Guide](https://daringfireball.net/projects/markdown/syntax) at Daring Fireball is an excellent resource for a detailed explanation of standard markdown.
 - [Dillinger.io](http://dillinger.io) is a handy tool for testing standard markdown.
+
+[rouge]: http://rouge.jneen.net/ "Rouge website"
+[redcarpet]: https://github.com/vmg/redcarpet "Redcarpet website"
+[^1]: This link will be broken if you see this document from the Help page or docs.gitlab.com

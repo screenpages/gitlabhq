@@ -4,6 +4,8 @@ describe Projects::CommitController do
   let(:project) { create(:project) }
   let(:user)    { create(:user) }
   let(:commit)  { project.commit("master") }
+  let(:master_pickable_sha) { '7d3b0f7cff5f37573aea97cebfd5692ea1689924' }
+  let(:master_pickable_commit)  { project.commit(master_pickable_sha) }
 
   before do
     sign_in(user)
@@ -69,6 +71,21 @@ describe Projects::CommitController do
 
         expect(response.body).to start_with("diff --git")
       end
+      
+      it "should really only be a git diff without whitespace changes" do
+        get(:show,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            id: '66eceea0db202bb39c4e445e8ca28689645366c5',
+            # id: commit.id,
+            format: format,
+            w: 1)
+
+        expect(response.body).to start_with("diff --git")
+        # without whitespace option, there are more than 2 diff_splits
+        diff_splits = assigns(:diffs).first.diff.split("\n")
+        expect(diff_splits.length).to be <= 2
+      end
     end
 
     describe "as patch" do
@@ -95,6 +112,26 @@ describe Projects::CommitController do
         expect(response.body).to match(/^diff --git/)
       end
     end
+
+    context 'commit that removes a submodule' do
+      render_views
+
+      let(:fork_project) { create(:forked_project_with_submodules) }
+      let(:commit) { fork_project.commit('remove-submodule') }
+
+      before do
+        fork_project.team << [user, :master]
+      end
+
+      it 'renders it' do
+        get(:show,
+            namespace_id: fork_project.namespace.to_param,
+            project_id: fork_project.to_param,
+            id: commit.id)
+
+        expect(response).to be_success
+      end
+    end
   end
 
   describe "#branches" do
@@ -106,6 +143,104 @@ describe Projects::CommitController do
 
       expect(assigns(:branches)).to include("master", "feature_conflict")
       expect(assigns(:tags)).to include("v1.1.0")
+    end
+  end
+
+  describe '#revert' do
+    context 'when target branch is not provided' do
+      it 'should render the 404 page' do
+        post(:revert,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            id: commit.id)
+
+        expect(response).not_to be_success
+        expect(response.status).to eq(404)
+      end
+    end
+
+    context 'when the revert was successful' do
+      it 'should redirect to the commits page' do
+        post(:revert,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            target_branch: 'master',
+            id: commit.id)
+
+        expect(response).to redirect_to namespace_project_commits_path(project.namespace, project, 'master')
+        expect(flash[:notice]).to eq('The commit has been successfully reverted.')
+      end
+    end
+
+    context 'when the revert failed' do
+      before do
+        post(:revert,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            target_branch: 'master',
+            id: commit.id)
+      end
+
+      it 'should redirect to the commit page' do
+        # Reverting a commit that has been already reverted.
+        post(:revert,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            target_branch: 'master',
+            id: commit.id)
+
+        expect(response).to redirect_to namespace_project_commit_path(project.namespace, project, commit.id)
+        expect(flash[:alert]).to match('Sorry, we cannot revert this commit automatically.')
+      end
+    end
+  end
+
+  describe '#cherry_pick' do
+    context 'when target branch is not provided' do
+      it 'should render the 404 page' do
+        post(:cherry_pick,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            id: master_pickable_commit.id)
+
+        expect(response).not_to be_success
+        expect(response.status).to eq(404)
+      end
+    end
+
+    context 'when the cherry-pick was successful' do
+      it 'should redirect to the commits page' do
+        post(:cherry_pick,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            target_branch: 'master',
+            id: master_pickable_commit.id)
+
+        expect(response).to redirect_to namespace_project_commits_path(project.namespace, project, 'master')
+        expect(flash[:notice]).to eq('The commit has been successfully cherry-picked.')
+      end
+    end
+
+    context 'when the cherry_pick failed' do
+      before do
+        post(:cherry_pick,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            target_branch: 'master',
+            id: master_pickable_commit.id)
+      end
+
+      it 'should redirect to the commit page' do
+        # Cherry-picking a commit that has been already cherry-picked.
+        post(:cherry_pick,
+            namespace_id: project.namespace.to_param,
+            project_id: project.to_param,
+            target_branch: 'master',
+            id: master_pickable_commit.id)
+
+        expect(response).to redirect_to namespace_project_commit_path(project.namespace, project, master_pickable_commit.id)
+        expect(flash[:alert]).to match('Sorry, we cannot cherry-pick this commit automatically.')
+      end
     end
   end
 end

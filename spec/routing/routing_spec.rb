@@ -1,5 +1,42 @@
 require 'spec_helper'
 
+# user                       GET    /u/:username/
+# user_groups                GET    /u/:username/groups(.:format)
+# user_projects              GET    /u/:username/projects(.:format)
+# user_contributed_projects  GET    /u/:username/contributed(.:format)
+# user_snippets              GET    /u/:username/snippets(.:format)
+# user_calendar              GET    /u/:username/calendar(.:format)
+# user_calendar_activities   GET    /u/:username/calendar_activities(.:format)
+describe UsersController, "routing" do
+  it "to #show" do
+    expect(get("/u/User")).to route_to('users#show', username: 'User')
+  end
+
+  it "to #groups" do
+    expect(get("/u/User/groups")).to route_to('users#groups', username: 'User')
+  end
+
+  it "to #projects" do
+    expect(get("/u/User/projects")).to route_to('users#projects', username: 'User')
+  end
+
+  it "to #contributed" do
+    expect(get("/u/User/contributed")).to route_to('users#contributed', username: 'User')
+  end
+
+  it "to #snippets" do
+    expect(get("/u/User/snippets")).to route_to('users#snippets', username: 'User')
+  end
+
+  it "to #calendar" do
+    expect(get("/u/User/calendar")).to route_to('users#calendar', username: 'User')
+  end
+
+  it "to #calendar_activities" do
+    expect(get("/u/User/calendar_activities")).to route_to('users#calendar_activities', username: 'User')
+  end
+end
+
 # search GET    /search(.:format) search#show
 describe SearchController, "routing" do
   it "to #show" do
@@ -27,10 +64,6 @@ end
 #          PUT    /snippets/:id(.:format)      snippets#update
 #          DELETE /snippets/:id(.:format)      snippets#destroy
 describe SnippetsController, "routing" do
-  it "to #user_index" do
-    expect(get("/s/User")).to route_to('snippets#index', username: 'User')
-  end
-
   it "to #raw" do
     expect(get("/snippets/1/raw")).to route_to('snippets#raw', id: '1')
   end
@@ -137,7 +170,6 @@ end
 
 #     keys GET    /keys(.:format)          keys#index
 #          POST   /keys(.:format)          keys#create
-#  new_key GET    /keys/new(.:format)      keys#new
 # edit_key GET    /keys/:id/edit(.:format) keys#edit
 #      key GET    /keys/:id(.:format)      keys#show
 #          PUT    /keys/:id(.:format)      keys#update
@@ -149,10 +181,6 @@ describe Profiles::KeysController, "routing" do
 
   it "to #create" do
     expect(post("/profile/keys")).to route_to('profiles/keys#create')
-  end
-
-  it "to #new" do
-    expect(get("/profile/keys/new")).to route_to('profiles/keys#new')
   end
 
   it "to #edit" do
@@ -206,7 +234,7 @@ end
 # dashboard_merge_requests GET    /dashboard/merge_requests(.:format) dashboard#merge_requests
 describe DashboardController, "routing" do
   it "to #index" do
-    expect(get("/dashboard")).to route_to('dashboard#show')
+    expect(get("/dashboard")).to route_to('dashboard/projects#index')
   end
 
   it "to #issues" do
@@ -220,8 +248,8 @@ end
 
 #                     root        /                                   root#show
 describe RootController, 'routing' do
-  it 'to #show' do
-    expect(get('/')).to route_to('root#show')
+  it 'to #index' do
+    expect(get('/')).to route_to('root#index')
   end
 end
 
@@ -246,5 +274,15 @@ describe "Groups", "routing" do
 
   it "also display group#show on the short path" do
     expect(get('/1')).to route_to('namespaces#show', id: '1')
+  end
+end
+
+describe HealthCheckController, 'routing' do
+  it 'to #index' do
+    expect(get('/health_check')).to route_to('health_check#index')
+  end
+
+  it 'also supports passing checks in the url' do
+    expect(get('/health_check/email')).to route_to('health_check#index', checks: 'email')
   end
 end

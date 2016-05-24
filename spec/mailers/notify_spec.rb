@@ -1,170 +1,13 @@
 require 'spec_helper'
 require 'email_spec'
+require 'mailers/shared/notify'
 
 describe Notify do
   include EmailSpec::Helpers
   include EmailSpec::Matchers
   include RepoHelpers
 
-  new_user_address = 'newguy@example.com'
-
-  let(:gitlab_sender_display_name) { Gitlab.config.gitlab.email_display_name }
-  let(:gitlab_sender) { Gitlab.config.gitlab.email_from }
-  let(:gitlab_sender_reply_to) { Gitlab.config.gitlab.email_reply_to }
-  let(:recipient) { create(:user, email: 'recipient@example.com') }
-  let(:project) { create(:project) }
-
-  before(:each) do
-    ActionMailer::Base.deliveries.clear
-    email = recipient.emails.create(email: "notifications@example.com")
-    recipient.update_attribute(:notification_email, email.email)
-  end
-
-  shared_examples 'a multiple recipients email' do
-    it 'is sent to the given recipient' do
-      is_expected.to deliver_to recipient.notification_email
-    end
-  end
-
-  shared_examples 'an email sent from GitLab' do
-    it 'is sent from GitLab' do
-      sender = subject.header[:from].addrs[0]
-      expect(sender.display_name).to eq(gitlab_sender_display_name)
-      expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'has a Reply-To address' do
-      reply_to = subject.header[:reply_to].addresses
-      expect(reply_to).to eq([gitlab_sender_reply_to])
-    end
-  end
-
-  shared_examples 'an email starting a new thread' do |message_id_prefix|
-    it 'has a discussion identifier' do
-      is_expected.to have_header 'Message-ID',  /<#{message_id_prefix}(.*)@#{Gitlab.config.gitlab.host}>/
-      is_expected.to have_header 'X-GitLab-Project', /#{project.name}/
-    end
-  end
-
-  shared_examples 'an answer to an existing thread' do |thread_id_prefix|
-    it 'has a subject that begins with Re: ' do
-      is_expected.to have_subject /^Re: /
-    end
-
-    it 'has headers that reference an existing thread' do
-      is_expected.to have_header 'References',  /<#{thread_id_prefix}(.*)@#{Gitlab.config.gitlab.host}>/
-      is_expected.to have_header 'In-Reply-To', /<#{thread_id_prefix}(.*)@#{Gitlab.config.gitlab.host}>/
-      is_expected.to have_header 'X-GitLab-Project', /#{project.name}/
-    end
-  end
-
-  shared_examples 'a new user email' do |user_email, site_path|
-    it 'is sent to the new user' do
-      is_expected.to deliver_to user_email
-    end
-
-    it 'has the correct subject' do
-      is_expected.to have_subject /^Account was created for you$/i
-    end
-
-    it 'contains the new user\'s login name' do
-      is_expected.to have_body_text /#{user_email}/
-    end
-
-    it 'includes a link to the site' do
-      is_expected.to have_body_text /#{site_path}/
-    end
-  end
-
-  describe 'for new users, the email' do
-    let(:example_site_path) { root_path }
-    let(:new_user) { create(:user, email: new_user_address, created_by_id: 1) }
-
-    token = 'kETLwRaayvigPq_x3SNM'
-
-    subject { Notify.new_user_email(new_user.id, token) }
-
-    it_behaves_like 'an email sent from GitLab'
-    it_behaves_like 'a new user email', new_user_address
-
-    it 'contains the password text' do
-      is_expected.to have_body_text /Click here to set your password/
-    end
-
-    it 'includes a link for user to set password' do
-      params = "reset_password_token=#{token}"
-      is_expected.to have_body_text(
-        %r{http://localhost(:\d+)?/users/password/edit\?#{params}}
-      )
-    end
-
-    it 'explains the reset link expiration' do
-      is_expected.to have_body_text(/This link is valid for \d+ (hours?|days?)/)
-      is_expected.to have_body_text(new_user_password_url)
-      is_expected.to have_body_text(/\?user_email=.*%40.*/)
-    end
-  end
-
-
-  describe 'for users that signed up, the email' do
-    let(:example_site_path) { root_path }
-    let(:new_user) { create(:user, email: new_user_address, password: "securePassword") }
-
-    subject { Notify.new_user_email(new_user.id) }
-
-    it_behaves_like 'an email sent from GitLab'
-    it_behaves_like 'a new user email', new_user_address
-
-    it 'should not contain the new user\'s password' do
-      is_expected.not_to have_body_text /password/
-    end
-  end
-
-  describe 'user added ssh key' do
-    let(:key) { create(:personal_key) }
-
-    subject { Notify.new_ssh_key_email(key.id) }
-
-    it_behaves_like 'an email sent from GitLab'
-
-    it 'is sent to the new user' do
-      is_expected.to deliver_to key.user.email
-    end
-
-    it 'has the correct subject' do
-      is_expected.to have_subject /^SSH key was added to your account$/i
-    end
-
-    it 'contains the new ssh key title' do
-      is_expected.to have_body_text /#{key.title}/
-    end
-
-    it 'includes a link to ssh keys page' do
-      is_expected.to have_body_text /#{profile_keys_path}/
-    end
-  end
-
-  describe 'user added email' do
-    let(:email) { create(:email) }
-
-    subject { Notify.new_email_email(email.id) }
-
-    it 'is sent to the new user' do
-      is_expected.to deliver_to email.user.email
-    end
-
-    it 'has the correct subject' do
-      is_expected.to have_subject /^Email was added to your account$/i
-    end
-
-    it 'contains the new email address' do
-      is_expected.to have_body_text /#{email.email}/
-    end
-
-    it 'includes a link to emails page' do
-      is_expected.to have_body_text /#{profile_emails_path}/
-    end
-  end
+  include_context 'gitlab email notification'
 
   context 'for a project' do
     describe 'items that are assignable, the email' do
@@ -192,7 +35,11 @@ describe Notify do
           subject { Notify.new_issue_email(issue.assignee_id, issue.id) }
 
           it_behaves_like 'an assignee email'
-          it_behaves_like 'an email starting a new thread', 'issue'
+          it_behaves_like 'an email starting a new thread with reply-by-email enabled' do
+            let(:model) { issue }
+          end
+          it_behaves_like 'it should show Gmail Actions View Issue link'
+          it_behaves_like 'an unsubscribeable thread'
 
           it 'has the correct subject' do
             is_expected.to have_subject /#{project.name} \| #{issue.title} \(##{issue.iid}\)/
@@ -201,10 +48,23 @@ describe Notify do
           it 'contains a link to the new issue' do
             is_expected.to have_body_text /#{namespace_project_issue_path project.namespace, project, issue}/
           end
+
+          context 'when enabled email_author_in_body' do
+            before do
+              allow(current_application_settings).to receive(:email_author_in_body).and_return(true)
+            end
+
+            it 'contains a link to note author' do
+              is_expected.to have_body_text issue.author_name
+              is_expected.to have_body_text /wrote\:/
+            end
+          end
         end
 
         describe 'that are new with a description' do
           subject { Notify.new_issue_email(issue_with_description.assignee_id, issue_with_description.id) }
+
+          it_behaves_like 'it should show Gmail Actions View Issue link'
 
           it 'contains the description' do
             is_expected.to have_body_text /#{issue_with_description.description}/
@@ -212,10 +72,14 @@ describe Notify do
         end
 
         describe 'that have been reassigned' do
-          subject { Notify.reassigned_issue_email(recipient.id, issue.id, previous_assignee.id, current_user) }
+          subject { Notify.reassigned_issue_email(recipient.id, issue.id, previous_assignee.id, current_user.id) }
 
           it_behaves_like 'a multiple recipients email'
-          it_behaves_like 'an answer to an existing thread', 'issue'
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { issue }
+          end
+          it_behaves_like 'it should show Gmail Actions View Issue link'
+          it_behaves_like 'an unsubscribeable thread'
 
           it 'is sent as the author' do
             sender = subject.header[:from].addrs[0]
@@ -240,11 +104,45 @@ describe Notify do
           end
         end
 
+        describe 'that have been relabeled' do
+          subject { Notify.relabeled_issue_email(recipient.id, issue.id, %w[foo bar baz], current_user.id) }
+
+          it_behaves_like 'a multiple recipients email'
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { issue }
+          end
+          it_behaves_like 'it should show Gmail Actions View Issue link'
+          it_behaves_like 'a user cannot unsubscribe through footer link'
+          it_behaves_like 'an email with a labels subscriptions link in its footer'
+
+          it 'is sent as the author' do
+            sender = subject.header[:from].addrs[0]
+            expect(sender.display_name).to eq(current_user.name)
+            expect(sender.address).to eq(gitlab_sender)
+          end
+
+          it 'has the correct subject' do
+            is_expected.to have_subject /#{issue.title} \(##{issue.iid}\)/
+          end
+
+          it 'contains the names of the added labels' do
+            is_expected.to have_body_text /foo, bar, and baz/
+          end
+
+          it 'contains a link to the issue' do
+            is_expected.to have_body_text /#{namespace_project_issue_path project.namespace, project, issue}/
+          end
+        end
+
         describe 'status changed' do
           let(:status) { 'closed' }
-          subject { Notify.issue_status_changed_email(recipient.id, issue.id, status, current_user) }
+          subject { Notify.issue_status_changed_email(recipient.id, issue.id, status, current_user.id) }
 
-          it_behaves_like 'an answer to an existing thread', 'issue'
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { issue }
+          end
+          it_behaves_like 'it should show Gmail Actions View Issue link'
+          it_behaves_like 'an unsubscribeable thread'
 
           it 'is sent as the author' do
             sender = subject.header[:from].addrs[0]
@@ -269,6 +167,34 @@ describe Notify do
           end
         end
 
+        describe 'moved to another project' do
+          let(:new_issue) { create(:issue) }
+          subject { Notify.issue_moved_email(recipient, issue, new_issue, current_user) }
+
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { issue }
+          end
+          it_behaves_like 'it should show Gmail Actions View Issue link'
+          it_behaves_like 'an unsubscribeable thread'
+
+          it 'contains description about action taken' do
+            is_expected.to have_body_text 'Issue was moved to another project'
+          end
+
+          it 'has the correct subject' do
+            is_expected.to have_subject /#{issue.title} \(##{issue.iid}\)/i
+          end
+
+          it 'contains link to new issue' do
+            new_issue_url = namespace_project_issue_path(new_issue.project.namespace,
+                                                         new_issue.project, new_issue)
+            is_expected.to have_body_text new_issue_url
+          end
+
+          it 'contains a link to the original issue' do
+            is_expected.to have_body_text /#{namespace_project_issue_path project.namespace, project, issue}/
+          end
+        end
       end
 
       context 'for merge requests' do
@@ -280,10 +206,14 @@ describe Notify do
           subject { Notify.new_merge_request_email(merge_request.assignee_id, merge_request.id) }
 
           it_behaves_like 'an assignee email'
-          it_behaves_like 'an email starting a new thread', 'merge_request'
+          it_behaves_like 'an email starting a new thread with reply-by-email enabled' do
+            let(:model) { merge_request }
+          end
+          it_behaves_like 'it should show Gmail Actions View Merge request link'
+          it_behaves_like 'an unsubscribeable thread'
 
           it 'has the correct subject' do
-            is_expected.to have_subject /#{merge_request.title} \(##{merge_request.iid}\)/
+            is_expected.to have_subject /#{merge_request.title} \(#{merge_request.to_reference}\)/
           end
 
           it 'contains a link to the new merge request' do
@@ -298,13 +228,23 @@ describe Notify do
             is_expected.to have_body_text /#{merge_request.target_branch}/
           end
 
-          it 'has the correct message-id set' do
-            is_expected.to have_header 'Message-ID', "<merge_request_#{merge_request.id}@#{Gitlab.config.gitlab.host}>"
+          context 'when enabled email_author_in_body' do
+            before do
+              allow(current_application_settings).to receive(:email_author_in_body).and_return(true)
+            end
+
+            it 'contains a link to note author' do
+              is_expected.to have_body_text merge_request.author_name
+              is_expected.to have_body_text /wrote\:/
+            end
           end
         end
 
         describe 'that are new with a description' do
           subject { Notify.new_merge_request_email(merge_request_with_description.assignee_id, merge_request_with_description.id) }
+
+          it_behaves_like 'it should show Gmail Actions View Merge request link'
+          it_behaves_like "an unsubscribeable thread"
 
           it 'contains the description' do
             is_expected.to have_body_text /#{merge_request_with_description.description}/
@@ -315,7 +255,11 @@ describe Notify do
           subject { Notify.reassigned_merge_request_email(recipient.id, merge_request.id, previous_assignee.id, current_user.id) }
 
           it_behaves_like 'a multiple recipients email'
-          it_behaves_like 'an answer to an existing thread', 'merge_request'
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { merge_request }
+          end
+          it_behaves_like 'it should show Gmail Actions View Merge request link'
+          it_behaves_like "an unsubscribeable thread"
 
           it 'is sent as the author' do
             sender = subject.header[:from].addrs[0]
@@ -324,7 +268,7 @@ describe Notify do
           end
 
           it 'has the correct subject' do
-            is_expected.to have_subject /#{merge_request.title} \(##{merge_request.iid}\)/
+            is_expected.to have_subject /#{merge_request.title} \(#{merge_request.to_reference}\)/
           end
 
           it 'contains the name of the previous assignee' do
@@ -340,11 +284,16 @@ describe Notify do
           end
         end
 
-        describe 'status changed' do
-          let(:status) { 'reopened' }
-          subject { Notify.merge_request_status_email(recipient.id, merge_request.id, status, current_user) }
+        describe 'that have been relabeled' do
+          subject { Notify.relabeled_merge_request_email(recipient.id, merge_request.id, %w[foo bar baz], current_user.id) }
 
-          it_behaves_like 'an answer to an existing thread', 'merge_request'
+          it_behaves_like 'a multiple recipients email'
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { merge_request }
+          end
+          it_behaves_like 'it should show Gmail Actions View Merge request link'
+          it_behaves_like 'a user cannot unsubscribe through footer link'
+          it_behaves_like 'an email with a labels subscriptions link in its footer'
 
           it 'is sent as the author' do
             sender = subject.header[:from].addrs[0]
@@ -353,7 +302,36 @@ describe Notify do
           end
 
           it 'has the correct subject' do
-            is_expected.to have_subject /#{merge_request.title} \(##{merge_request.iid}\)/i
+            is_expected.to have_subject /#{merge_request.title} \(#{merge_request.to_reference}\)/
+          end
+
+          it 'contains the names of the added labels' do
+            is_expected.to have_body_text /foo, bar, and baz/
+          end
+
+          it 'contains a link to the merge request' do
+            is_expected.to have_body_text /#{namespace_project_merge_request_path project.namespace, project, merge_request}/
+          end
+        end
+
+        describe 'status changed' do
+          let(:status) { 'reopened' }
+          subject { Notify.merge_request_status_email(recipient.id, merge_request.id, status, current_user.id) }
+
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { merge_request }
+          end
+          it_behaves_like 'it should show Gmail Actions View Merge request link'
+          it_behaves_like 'an unsubscribeable thread'
+
+          it 'is sent as the author' do
+            sender = subject.header[:from].addrs[0]
+            expect(sender.display_name).to eq(current_user.name)
+            expect(sender.address).to eq(gitlab_sender)
+          end
+
+          it 'has the correct subject' do
+            is_expected.to have_subject /#{merge_request.title} \(#{merge_request.to_reference}\)/i
           end
 
           it 'contains the new status' do
@@ -373,7 +351,11 @@ describe Notify do
           subject { Notify.merged_merge_request_email(recipient.id, merge_request.id, merge_author.id) }
 
           it_behaves_like 'a multiple recipients email'
-          it_behaves_like 'an answer to an existing thread', 'merge_request'
+          it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+            let(:model) { merge_request }
+          end
+          it_behaves_like 'it should show Gmail Actions View Merge request link'
+          it_behaves_like 'an unsubscribeable thread'
 
           it 'is sent as the merge author' do
             sender = subject.header[:from].addrs[0]
@@ -382,7 +364,7 @@ describe Notify do
           end
 
           it 'has the correct subject' do
-            is_expected.to have_subject /#{merge_request.title} \(##{merge_request.iid}\)/
+            is_expected.to have_subject /#{merge_request.title} \(#{merge_request.to_reference}\)/
           end
 
           it 'contains the new status' do
@@ -399,9 +381,11 @@ describe Notify do
     describe 'project was moved' do
       let(:project) { create(:project) }
       let(:user) { create(:user) }
-      subject { Notify.project_was_moved_email(project.id, user.id) }
+      subject { Notify.project_was_moved_email(project.id, user.id, "gitlab/gitlab") }
 
       it_behaves_like 'an email sent from GitLab'
+      it_behaves_like 'it should not have Gmail Actions links'
+      it_behaves_like "a user cannot unsubscribe through footer link"
 
       it 'has the correct subject' do
         is_expected.to have_subject /Project was moved/
@@ -423,13 +407,17 @@ describe Notify do
       subject { Notify.project_access_granted_email(project_member.id) }
 
       it_behaves_like 'an email sent from GitLab'
+      it_behaves_like 'it should not have Gmail Actions links'
+      it_behaves_like "a user cannot unsubscribe through footer link"
 
       it 'has the correct subject' do
         is_expected.to have_subject /Access to project was granted/
       end
+
       it 'contains name of project' do
         is_expected.to have_body_text /#{project.name}/
       end
+
       it 'contains new user role' do
         is_expected.to have_body_text /#{project_member.human_access}/
       end
@@ -444,6 +432,8 @@ describe Notify do
       end
 
       shared_examples 'a note email' do
+        it_behaves_like 'it should have Gmail Actions links'
+
         it 'is sent as the author' do
           sender = subject.header[:from].addrs[0]
           expect(sender.display_name).to eq(note_author.name)
@@ -457,6 +447,21 @@ describe Notify do
         it 'contains the message from the note' do
           is_expected.to have_body_text /#{note.note}/
         end
+
+        it 'not contains note author' do
+          is_expected.not_to have_body_text /wrote\:/
+        end
+
+        context 'when enabled email_author_in_body' do
+          before do
+            allow(current_application_settings).to receive(:email_author_in_body).and_return(true)
+          end
+
+          it 'contains a link to note author' do
+            is_expected.to have_body_text note.author_name
+            is_expected.to have_body_text /wrote\:/
+          end
+        end
       end
 
       describe 'on a commit' do
@@ -467,7 +472,11 @@ describe Notify do
         subject { Notify.note_commit_email(recipient.id, note.id) }
 
         it_behaves_like 'a note email'
-        it_behaves_like 'an answer to an existing thread', 'commits'
+        it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+          let(:model) { commit }
+        end
+        it_behaves_like 'it should show Gmail Actions View Commit link'
+        it_behaves_like 'a user cannot unsubscribe through footer link'
 
         it 'has the correct subject' do
           is_expected.to have_subject /#{commit.title} \(#{commit.short_id}\)/
@@ -486,10 +495,14 @@ describe Notify do
         subject { Notify.note_merge_request_email(recipient.id, note.id) }
 
         it_behaves_like 'a note email'
-        it_behaves_like 'an answer to an existing thread', 'merge_request'
+        it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+          let(:model) { merge_request }
+        end
+        it_behaves_like 'it should show Gmail Actions View Merge request link'
+        it_behaves_like 'an unsubscribeable thread'
 
         it 'has the correct subject' do
-          is_expected.to have_subject /#{merge_request.title} \(##{merge_request.iid}\)/
+          is_expected.to have_subject /#{merge_request.title} \(#{merge_request.to_reference}\)/
         end
 
         it 'contains a link to the merge request note' do
@@ -505,7 +518,11 @@ describe Notify do
         subject { Notify.note_issue_email(recipient.id, note.id) }
 
         it_behaves_like 'a note email'
-        it_behaves_like 'an answer to an existing thread', 'issue'
+        it_behaves_like 'an answer to an existing thread with reply-by-email enabled' do
+          let(:model) { issue }
+        end
+        it_behaves_like 'it should show Gmail Actions View Issue link'
+        it_behaves_like 'an unsubscribeable thread'
 
         it 'has the correct subject' do
           is_expected.to have_subject /#{issue.title} \(##{issue.iid}\)/
@@ -526,6 +543,8 @@ describe Notify do
     subject { Notify.group_access_granted_email(membership.id) }
 
     it_behaves_like 'an email sent from GitLab'
+    it_behaves_like 'it should not have Gmail Actions links'
+    it_behaves_like "a user cannot unsubscribe through footer link"
 
     it 'has the correct subject' do
       is_expected.to have_subject /Access to group was granted/
@@ -545,13 +564,16 @@ describe Notify do
     let(:user) { create(:user, email: 'old-email@mail.com') }
 
     before do
-      user.email = "new-email@mail.com"
-      user.save
+      perform_enqueued_jobs do
+        user.email = "new-email@mail.com"
+        user.save
+      end
     end
 
     subject { ActionMailer::Base.deliveries.last }
 
     it_behaves_like 'an email sent from GitLab'
+    it_behaves_like "a user cannot unsubscribe through footer link"
 
     it 'is sent to the new user' do
       is_expected.to deliver_to 'new-email@mail.com'
@@ -571,16 +593,17 @@ describe Notify do
     let(:user) { create(:user) }
     let(:tree_path) { namespace_project_tree_path(project.namespace, project, "master") }
 
-    subject { Notify.repository_push_email(project.id, 'devs@company.name', author_id: user.id, ref: 'refs/heads/master', action: :create) }
+    subject { Notify.repository_push_email(project.id, author_id: user.id, ref: 'refs/heads/master', action: :create) }
+
+    it_behaves_like 'it should not have Gmail Actions links'
+    it_behaves_like "a user cannot unsubscribe through footer link"
+    it_behaves_like 'an email with X-GitLab headers containing project details'
+    it_behaves_like 'an email that contains a header with author username'
 
     it 'is sent as the author' do
       sender = subject.header[:from].addrs[0]
       expect(sender.display_name).to eq(user.name)
       expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'is sent to recipient' do
-      is_expected.to deliver_to 'devs@company.name'
     end
 
     it 'has the correct subject' do
@@ -597,16 +620,17 @@ describe Notify do
     let(:user) { create(:user) }
     let(:tree_path) { namespace_project_tree_path(project.namespace, project, "v1.0") }
 
-    subject { Notify.repository_push_email(project.id, 'devs@company.name', author_id: user.id, ref: 'refs/tags/v1.0', action: :create) }
+    subject { Notify.repository_push_email(project.id, author_id: user.id, ref: 'refs/tags/v1.0', action: :create) }
+
+    it_behaves_like 'it should not have Gmail Actions links'
+    it_behaves_like "a user cannot unsubscribe through footer link"
+    it_behaves_like 'an email with X-GitLab headers containing project details'
+    it_behaves_like 'an email that contains a header with author username'
 
     it 'is sent as the author' do
       sender = subject.header[:from].addrs[0]
       expect(sender.display_name).to eq(user.name)
       expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'is sent to recipient' do
-      is_expected.to deliver_to 'devs@company.name'
     end
 
     it 'has the correct subject' do
@@ -622,16 +646,17 @@ describe Notify do
     let(:example_site_path) { root_path }
     let(:user) { create(:user) }
 
-    subject { Notify.repository_push_email(project.id, 'devs@company.name', author_id: user.id, ref: 'refs/heads/master', action: :delete) }
+    subject { Notify.repository_push_email(project.id, author_id: user.id, ref: 'refs/heads/master', action: :delete) }
+
+    it_behaves_like 'it should not have Gmail Actions links'
+    it_behaves_like "a user cannot unsubscribe through footer link"
+    it_behaves_like 'an email with X-GitLab headers containing project details'
+    it_behaves_like 'an email that contains a header with author username'
 
     it 'is sent as the author' do
       sender = subject.header[:from].addrs[0]
       expect(sender.display_name).to eq(user.name)
       expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'is sent to recipient' do
-      is_expected.to deliver_to 'devs@company.name'
     end
 
     it 'has the correct subject' do
@@ -643,16 +668,17 @@ describe Notify do
     let(:example_site_path) { root_path }
     let(:user) { create(:user) }
 
-    subject { Notify.repository_push_email(project.id, 'devs@company.name', author_id: user.id, ref: 'refs/tags/v1.0', action: :delete) }
+    subject { Notify.repository_push_email(project.id, author_id: user.id, ref: 'refs/tags/v1.0', action: :delete) }
+
+    it_behaves_like 'it should not have Gmail Actions links'
+    it_behaves_like "a user cannot unsubscribe through footer link"
+    it_behaves_like 'an email with X-GitLab headers containing project details'
+    it_behaves_like 'an email that contains a header with author username'
 
     it 'is sent as the author' do
       sender = subject.header[:from].addrs[0]
       expect(sender.display_name).to eq(user.name)
       expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'is sent to recipient' do
-      is_expected.to deliver_to 'devs@company.name'
     end
 
     it 'has the correct subject' do
@@ -667,17 +693,19 @@ describe Notify do
     let(:commits) { Commit.decorate(compare.commits, nil) }
     let(:diff_path) { namespace_project_compare_path(project.namespace, project, from: Commit.new(compare.base, project), to: Commit.new(compare.head, project)) }
     let(:send_from_committer_email) { false }
+    let(:diff_refs) { [project.merge_base_commit(sample_image_commit.id, sample_commit.id), project.commit(sample_commit.id)] }
 
-    subject { Notify.repository_push_email(project.id, 'devs@company.name', author_id: user.id, ref: 'refs/heads/master', action: :push, compare: compare, reverse_compare: false, send_from_committer_email: send_from_committer_email) }
+    subject { Notify.repository_push_email(project.id, author_id: user.id, ref: 'refs/heads/master', action: :push, compare: compare, reverse_compare: false, diff_refs: diff_refs, send_from_committer_email: send_from_committer_email) }
+
+    it_behaves_like 'it should not have Gmail Actions links'
+    it_behaves_like "a user cannot unsubscribe through footer link"
+    it_behaves_like 'an email with X-GitLab headers containing project details'
+    it_behaves_like 'an email that contains a header with author username'
 
     it 'is sent as the author' do
       sender = subject.header[:from].addrs[0]
       expect(sender.display_name).to eq(user.name)
       expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'is sent to recipient' do
-      is_expected.to deliver_to 'devs@company.name'
     end
 
     it 'has the correct subject' do
@@ -688,15 +716,15 @@ describe Notify do
       is_expected.to have_body_text /Change some files/
     end
 
-    it 'includes diffs' do
-      is_expected.to have_body_text /def archive_formats_regex/
+    it 'includes diffs with character-level highlighting' do
+      is_expected.to have_body_text /def<\/span> <span class=\"nf\">archive_formats_regex/
     end
 
     it 'contains a link to the diff' do
       is_expected.to have_body_text /#{diff_path}/
     end
 
-    it 'doesn not contain the misleading footer' do
+    it 'does not contain the misleading footer' do
       is_expected.not_to have_body_text /you are a member of/
     end
 
@@ -712,7 +740,7 @@ describe Notify do
 
         before do
           user.update_attribute(:email, "user@company.com")
-          user.confirm!
+          user.confirm
         end
 
         it "is sent from the committer email" do
@@ -730,7 +758,7 @@ describe Notify do
 
         before do
           user.update_attribute(:email, "user@something.company.com")
-          user.confirm!
+          user.confirm
         end
 
         it "is sent from the default email" do
@@ -748,7 +776,7 @@ describe Notify do
 
         before do
           user.update_attribute(:email, "user@mpany.com")
-          user.confirm!
+          user.confirm
         end
 
         it "is sent from the default email" do
@@ -770,17 +798,19 @@ describe Notify do
     let(:compare) { Gitlab::Git::Compare.new(project.repository.raw_repository, sample_commit.parent_id, sample_commit.id) }
     let(:commits) { Commit.decorate(compare.commits, nil) }
     let(:diff_path) { namespace_project_commit_path(project.namespace, project, commits.first) }
+    let(:diff_refs) { [project.merge_base_commit(sample_commit.parent_id, sample_commit.id), project.commit(sample_commit.id)] }
 
-    subject { Notify.repository_push_email(project.id, 'devs@company.name', author_id: user.id, ref: 'refs/heads/master', action: :push, compare: compare) }
+    subject { Notify.repository_push_email(project.id, author_id: user.id, ref: 'refs/heads/master', action: :push, compare: compare, diff_refs: diff_refs) }
+
+    it_behaves_like 'it should show Gmail Actions View Commit link'
+    it_behaves_like "a user cannot unsubscribe through footer link"
+    it_behaves_like 'an email with X-GitLab headers containing project details'
+    it_behaves_like 'an email that contains a header with author username'
 
     it 'is sent as the author' do
       sender = subject.header[:from].addrs[0]
       expect(sender.display_name).to eq(user.name)
       expect(sender.address).to eq(gitlab_sender)
-    end
-
-    it 'is sent to recipient' do
-      is_expected.to deliver_to 'devs@company.name'
     end
 
     it 'has the correct subject' do
@@ -791,12 +821,13 @@ describe Notify do
       is_expected.to have_body_text /Change some files/
     end
 
-    it 'includes diffs' do
-      is_expected.to have_body_text /def archive_formats_regex/
+    it 'includes diffs with character-level highlighting' do
+      is_expected.to have_body_text /def<\/span> <span class=\"nf\">archive_formats_regex/
     end
 
     it 'contains a link to the diff' do
       is_expected.to have_body_text /#{diff_path}/
     end
   end
+
 end

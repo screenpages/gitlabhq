@@ -1,28 +1,16 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#
-
 class HipchatService < Service
   MAX_COMMITS = 3
 
   prop_accessor :token, :room, :server, :notify, :color, :api_version
+  boolean_accessor :notify_only_broken_builds
   validates :token, presence: true, if: :activated?
+
+  def initialize_properties
+    if properties.nil?
+      self.properties = {}
+      self.notify_only_broken_builds = true
+    end
+  end
 
   def title
     'HipChat'
@@ -45,12 +33,13 @@ class HipchatService < Service
       { type: 'text', name: 'api_version',
         placeholder: 'Leave blank for default (v2)' },
       { type: 'text', name: 'server',
-        placeholder: 'Leave blank for default. https://hipchat.example.com' }
+        placeholder: 'Leave blank for default. https://hipchat.example.com' },
+      { type: 'checkbox', name: 'notify_only_broken_builds' },
     ]
   end
 
   def supported_events
-    %w(push issue merge_request note tag_push)
+    %w(push issue merge_request note tag_push build)
   end
 
   def execute(data)
@@ -58,6 +47,16 @@ class HipchatService < Service
     message = create_message(data)
     return unless message.present?
     gate[room].send('GitLab', message, message_options)
+  end
+
+  def test(data)
+    begin
+      result = execute(data)
+    rescue StandardError => error
+      return { success: false, result: error }
+    end
+
+    { success: true, result: result }
   end
 
   private
@@ -75,17 +74,18 @@ class HipchatService < Service
   def create_message(data)
     object_kind = data[:object_kind]
 
-    message = \
-      case object_kind
-      when "push", "tag_push"
-        create_push_message(data)
-      when "issue"
-        create_issue_message(data) unless is_update?(data)
-      when "merge_request"
-        create_merge_request_message(data) unless is_update?(data)
-      when "note"
-        create_note_message(data)
-      end
+    case object_kind
+    when "push", "tag_push"
+      create_push_message(data)
+    when "issue"
+      create_issue_message(data) unless is_update?(data)
+    when "merge_request"
+      create_merge_request_message(data) unless is_update?(data)
+    when "note"
+      create_note_message(data)
+    when "build"
+      create_build_message(data) if should_build_be_notified?(data)
+    end
   end
 
   def create_push_message(push)
@@ -99,13 +99,13 @@ class HipchatService < Service
     message << "#{push[:user_name]} "
     if Gitlab::Git.blank_ref?(before)
       message << "pushed new #{ref_type} <a href=\""\
-                 "#{project_url}/commits/#{URI.escape(ref)}\">#{ref}</a>"\
+                 "#{project_url}/commits/#{CGI.escape(ref)}\">#{ref}</a>"\
                  " to #{project_link}\n"
     elsif Gitlab::Git.blank_ref?(after)
       message << "removed #{ref_type} <b>#{ref}</b> from <a href=\"#{project.web_url}\">#{project_name}</a> \n"
     else
       message << "pushed to #{ref_type} <a href=\""\
-                  "#{project.web_url}/commits/#{URI.escape(ref)}\">#{ref}</a> "
+                  "#{project.web_url}/commits/#{CGI.escape(ref)}\">#{ref}</a> "
       message << "of <a href=\"#{project.web_url}\">#{project.name_with_namespace.gsub!(/\s/,'')}</a> "
       message << "(<a href=\"#{project.web_url}/compare/#{before}...#{after}\">Compare changes</a>)"
 
@@ -157,14 +157,12 @@ class HipchatService < Service
     obj_attr = data[:object_attributes]
     obj_attr = HashWithIndifferentAccess.new(obj_attr)
     merge_request_id = obj_attr[:iid]
-    source_branch = obj_attr[:source_branch]
-    target_branch = obj_attr[:target_branch]
     state = obj_attr[:state]
     description = obj_attr[:description]
     title = obj_attr[:title]
 
     merge_request_url = "#{project_url}/merge_requests/#{merge_request_id}"
-    merge_request_link = "<a href=\"#{merge_request_url}\">merge request ##{merge_request_id}</a>"
+    merge_request_link = "<a href=\"#{merge_request_url}\">merge request !#{merge_request_id}</a>"
     message = "#{user_name} #{state} #{merge_request_link} in " \
       "#{project_link}: <b>#{title}</b>"
 
@@ -183,8 +181,6 @@ class HipchatService < Service
   def create_note_message(data)
     data = HashWithIndifferentAccess.new(data)
     user_name = data[:user][:name]
-
-    repo_attr = HashWithIndifferentAccess.new(data[:repository])
 
     obj_attr = HashWithIndifferentAccess.new(data[:object_attributes])
     note = obj_attr[:note]
@@ -207,7 +203,7 @@ class HipchatService < Service
     when "MergeRequest"
       subj_attr = HashWithIndifferentAccess.new(data[:merge_request])
       subject_id = subj_attr[:iid]
-      subject_desc = "##{subject_id}"
+      subject_desc = "!#{subject_id}"
       subject_type = "merge request"
       title = format_title(subj_attr[:title])
     when "Snippet"
@@ -230,6 +226,20 @@ class HipchatService < Service
     message
   end
 
+  def create_build_message(data)
+    ref_type = data[:tag] ? 'tag' : 'branch'
+    ref = data[:ref]
+    sha = data[:sha]
+    user_name = data[:commit][:author_name]
+    status = data[:commit][:status]
+    duration = data[:commit][:duration]
+
+    branch_link = "<a href=\"#{project_url}/commits/#{CGI.escape(ref)}\">#{ref}</a>"
+    commit_link = "<a href=\"#{project_url}/commit/#{CGI.escape(sha)}/builds\">#{Commit.truncate_sha(sha)}</a>"
+
+    "#{project_link}: Commit #{commit_link} of #{branch_link} #{ref_type} by #{user_name} #{humanized_status(status)} in #{duration} second(s)"
+  end
+
   def project_name
     project.name_with_namespace.gsub(/\s/, '')
   end
@@ -244,5 +254,25 @@ class HipchatService < Service
 
   def is_update?(data)
     data[:object_attributes][:action] == 'update'
+  end
+
+  def humanized_status(status)
+    case status
+    when 'success'
+      'passed'
+    else
+      status
+    end
+  end
+
+  def should_build_be_notified?(data)
+    case data[:commit][:status]
+    when 'success'
+      !notify_only_broken_builds?
+    when 'failed'
+      true
+    else
+      false
+    end
   end
 end

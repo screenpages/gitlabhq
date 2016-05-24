@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe Gitlab::LDAP::User do
+describe Gitlab::LDAP::User, lib: true do
   let(:ldap_user) { Gitlab::LDAP::User.new(auth_hash) }
   let(:gl_user) { ldap_user.gl_user }
   let(:info) do
@@ -11,7 +11,18 @@ describe Gitlab::LDAP::User do
     }
   end
   let(:auth_hash) do
-    double(uid: 'my-uid', provider: 'ldapmain', info: double(info))
+    OmniAuth::AuthHash.new(uid: 'my-uid', provider: 'ldapmain', info: info)
+  end
+  let(:ldap_user_upper_case) { Gitlab::LDAP::User.new(auth_hash_upper_case) }
+  let(:info_upper_case) do
+    {
+      name: 'John',
+      email: 'John@Example.com', # Email address has upper case chars
+      nickname: 'john'
+    }
+  end
+  let(:auth_hash_upper_case) do
+    OmniAuth::AuthHash.new(uid: 'my-uid', provider: 'ldapmain', info: info_upper_case)
   end
 
   describe :changed? do
@@ -26,8 +37,23 @@ describe Gitlab::LDAP::User do
     end
 
     it "dont marks existing ldap user as changed" do
-      create(:omniauth_user, email: 'john@example.com', extern_uid: 'my-uid', provider: 'ldapmain')
+      create(:omniauth_user, email: 'john@example.com', extern_uid: 'my-uid', provider: 'ldapmain', ldap_email: true)
       expect(ldap_user.changed?).to be_falsey
+    end
+  end
+
+  describe '.find_by_uid_and_provider' do
+    it 'retrieves the correct user' do
+      special_info = {
+        name: 'John Åström',
+        email: 'john@example.com',
+        nickname: 'jastrom'
+      }
+      special_hash = OmniAuth::AuthHash.new(uid: 'CN=John Åström,CN=Users,DC=Example,DC=com', provider: 'ldapmain', info: special_info)
+      special_chars_user = described_class.new(special_hash)
+      user = special_chars_user.save
+
+      expect(described_class.find_by_uid_and_provider(special_hash.uid, special_hash.provider)).to eq user
     end
   end
 
@@ -47,8 +73,66 @@ describe Gitlab::LDAP::User do
       expect(existing_user.ldap_identity.provider).to eql 'ldapmain'
     end
 
+    it 'connects to existing ldap user if the extern_uid changes' do
+      existing_user = create(:omniauth_user, email: 'john@example.com', extern_uid: 'old-uid', provider: 'ldapmain')
+      expect{ ldap_user.save }.not_to change{ User.count }
+
+      existing_user.reload
+      expect(existing_user.ldap_identity.extern_uid).to eql 'my-uid'
+      expect(existing_user.ldap_identity.provider).to eql 'ldapmain'
+      expect(existing_user.id).to eql ldap_user.gl_user.id
+    end
+
+    it 'connects to existing ldap user if the extern_uid changes and email address has upper case characters' do
+      existing_user = create(:omniauth_user, email: 'john@example.com', extern_uid: 'old-uid', provider: 'ldapmain')
+      expect{ ldap_user_upper_case.save }.not_to change{ User.count }
+
+      existing_user.reload
+      expect(existing_user.ldap_identity.extern_uid).to eql 'my-uid'
+      expect(existing_user.ldap_identity.provider).to eql 'ldapmain'
+      expect(existing_user.id).to eql ldap_user.gl_user.id
+    end
+
+    it 'maintains an identity per provider' do
+      existing_user = create(:omniauth_user, email: 'john@example.com', provider: 'twitter')
+      expect(existing_user.identities.count).to eql(1)
+
+      ldap_user.save
+      expect(ldap_user.gl_user.identities.count).to eql(2)
+
+      # Expect that find_by provider only returns a single instance of an identity and not an Enumerable
+      expect(ldap_user.gl_user.identities.find_by(provider: 'twitter')).to be_instance_of Identity
+      expect(ldap_user.gl_user.identities.find_by(provider: auth_hash.provider)).to be_instance_of Identity
+    end
+
     it "creates a new user if not found" do
       expect{ ldap_user.save }.to change{ User.count }.by(1)
+    end
+  end
+
+  describe 'updating email' do
+    context "when LDAP sets an email" do
+      it "has a real email" do
+        expect(ldap_user.gl_user.email).to eq(info[:email])
+      end
+
+      it "has ldap_email set to true" do
+        expect(ldap_user.gl_user.ldap_email?).to be(true)
+      end
+    end
+
+    context "when LDAP doesn't set an email" do
+      before do
+        info.delete(:email)
+      end
+
+      it "has a temp email" do
+        expect(ldap_user.gl_user.temp_oauth_email?).to be(true)
+      end
+
+      it "has ldap_email set to false" do
+        expect(ldap_user.gl_user.ldap_email?).to be(false)
+      end
     end
   end
 

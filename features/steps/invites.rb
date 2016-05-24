@@ -6,7 +6,7 @@ class Spinach::Features::Invites < Spinach::FeatureSteps
   step '"John Doe" has invited "user@example.com" to group "Owned"' do
     user = User.find_by(name: "John Doe")
     group = Group.find_by(name: "Owned")
-    group.add_user("user@example.com", Gitlab::Access::DEVELOPER, user)
+    group.add_developer("user@example.com", user)
   end
 
   step 'I visit the invitation page' do
@@ -63,7 +63,7 @@ class Spinach::Features::Invites < Spinach::FeatureSteps
   end
 
   step 'I should be redirected to the dashboard' do
-    expect(current_path).to eq(dashboard_path)
+    expect(current_path).to eq(dashboard_projects_path)
   end
 
   step 'I should see a notice telling me I have declined' do

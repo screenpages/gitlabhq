@@ -1,7 +1,9 @@
 %strong
-  %i.fa.fa-spinner.fa-spin
-  Checking automatic merge…
+  = icon("spinner spin")
+  Checking ability to merge automatically&hellip;
 
-:coffeescript
-  $ ->
-    merge_request_widget.getMergeStatus()
+:javascript
+  $(function() {
+    merge_request_widget.getMergeStatus();
+  });
+

@@ -100,6 +100,13 @@ Markdown should be usable inside a link. Let's try!
 - [**text**](#link-strong)
 - [`text`](#link-code)
 
+### RelativeLinkFilter
+
+Linking to a file relative to this project's repository should work.
+
+[Relative Link](doc/README.md)
+![Relative Image](app/assets/images/touch-icon-ipad.png)
+
 ### EmojiFilter
 
 Because life would be :zzz: without Emoji, right? :rocket:
@@ -123,9 +130,9 @@ These are all plain text that should get turned into links:
 
 But it shouldn't autolink text inside certain tags:
 
-- <code>http://about.gitlab.com/</code>
-- <a>http://about.gitlab.com/</a>
-- <kbd>http://about.gitlab.com/</kbd>
+- <code>http://code.gitlab.com/</code>
+- <a>http://a.gitlab.com/</a>
+- <kbd>http://kbd.gitlab.com/</kbd>
 
 ### ExternalLinkFilter
 
@@ -146,6 +153,7 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
 - Ignores invalid: <%= User.reference_prefix %>fake_user
 - Ignored in code: `<%= user.to_reference %>`
 - Ignored in links: [Link to <%= user.to_reference %>](#user-link)
+- Link to user by reference: [User](<%= user.to_reference %>)
 
 #### IssueReferenceFilter
 
@@ -153,6 +161,9 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
 - Issue in another project: <%= xissue.to_reference(project) %>
 - Ignored in code: `<%= issue.to_reference %>`
 - Ignored in links: [Link to <%= issue.to_reference %>](#issue-link)
+- Issue by URL: <%= urls.namespace_project_issue_url(issue.project.namespace, issue.project, issue) %>
+- Link to issue by reference: [Issue](<%= issue.to_reference %>)
+- Link to issue by URL: [Issue](<%= urls.namespace_project_issue_url(issue.project.namespace, issue.project, issue) %>)
 
 #### MergeRequestReferenceFilter
 
@@ -160,6 +171,9 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
 - Merge request in another project: <%= xmerge_request.to_reference(project) %>
 - Ignored in code: `<%= merge_request.to_reference %>`
 - Ignored in links: [Link to <%= merge_request.to_reference %>](#merge-request-link)
+- Merge request by URL: <%= urls.namespace_project_merge_request_url(merge_request.project.namespace, merge_request.project, merge_request) %>
+- Link to merge request by reference: [Merge request](<%= merge_request.to_reference %>)
+- Link to merge request by URL: [Merge request](<%= urls.namespace_project_merge_request_url(merge_request.project.namespace, merge_request.project, merge_request) %>)
 
 #### SnippetReferenceFilter
 
@@ -167,6 +181,9 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
 - Snippet in another project: <%= xsnippet.to_reference(project) %>
 - Ignored in code: `<%= snippet.to_reference %>`
 - Ignored in links: [Link to <%= snippet.to_reference %>](#snippet-link)
+- Snippet by URL: <%= urls.namespace_project_snippet_url(snippet.project.namespace, snippet.project, snippet) %>
+- Link to snippet by reference: [Snippet](<%= snippet.to_reference %>)
+- Link to snippet by URL: [Snippet](<%= urls.namespace_project_snippet_url(snippet.project.namespace, snippet.project, snippet) %>)
 
 #### CommitRangeReferenceFilter
 
@@ -174,6 +191,9 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
 - Range in another project: <%= xcommit_range.to_reference(project) %>
 - Ignored in code: `<%= commit_range.to_reference %>`
 - Ignored in links: [Link to <%= commit_range.to_reference %>](#commit-range-link)
+- Range by URL: <%= urls.namespace_project_compare_url(commit_range.project.namespace, commit_range.project, commit_range.to_param) %>
+- Link to range by reference: [Range](<%= commit_range.to_reference %>)
+- Link to range by URL: [Range](<%= urls.namespace_project_compare_url(commit_range.project.namespace, commit_range.project, commit_range.to_param) %>)
 
 #### CommitReferenceFilter
 
@@ -181,14 +201,29 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
 - Commit in another project: <%= xcommit.to_reference(project) %>
 - Ignored in code: `<%= commit.to_reference %>`
 - Ignored in links: [Link to <%= commit.to_reference %>](#commit-link)
+- Commit by URL: <%= urls.namespace_project_commit_url(commit.project.namespace, commit.project, commit) %>
+- Link to commit by reference: [Commit](<%= commit.to_reference %>)
+- Link to commit by URL: [Commit](<%= urls.namespace_project_commit_url(commit.project.namespace, commit.project, commit) %>)
 
 #### LabelReferenceFilter
 
 - Label by ID: <%= simple_label.to_reference %>
 - Label by name: <%= Label.reference_prefix %><%= simple_label.name %>
-- Label by name in quotes: <%= label.to_reference(:name) %>
+- Label by name in quotes: <%= label.to_reference(format: :name) %>
 - Ignored in code: `<%= simple_label.to_reference %>`
 - Ignored in links: [Link to <%= simple_label.to_reference %>](#label-link)
+- Link to label by reference: [Label](<%= label.to_reference %>)
+
+#### MilestoneReferenceFilter
+
+- Milestone by ID: <%= simple_milestone.to_reference %>
+- Milestone by name: <%= Milestone.reference_prefix %><%= simple_milestone.name %>
+- Milestone by name in quotes: <%= milestone.to_reference(format: :name) %>
+- Milestone in another project: <%= xmilestone.to_reference(project) %>
+- Ignored in code: `<%= simple_milestone.to_reference %>`
+- Ignored in links: [Link to <%= simple_milestone.to_reference %>](#milestone-link)
+- Milestone by URL: <%= urls.namespace_project_milestone_url(milestone.project.namespace, milestone.project, milestone) %>
+- Link to milestone by URL: [Milestone](<%= milestone.to_reference %>)
 
 ### Task Lists
 
@@ -199,3 +234,25 @@ References should be parseable even inside _<%= merge_request.to_reference %>_ e
   - [ ] Incomplete sub-task 2
   - [x] Complete sub-task 1
 - [X] Complete task 2
+
+#### Gollum Tags
+
+- [[linked-resource]]
+- [[link-text|linked-resource]]
+- [[http://example.com]]
+- [[link-text|http://example.com/pdfs/gollum.pdf]]
+- [[images/example.jpg]]
+- [[http://example.com/images/example.jpg]]
+
+### Inline Diffs
+
+With inline diffs tags you can display {+ additions +} or [- deletions -].
+
+The wrapping tags can be either curly braces or square brackets [+ additions +] or {- deletions -}.
+
+However the wrapping tags can not be mixed as such -
+
+- {+ additions +]
+- [+ additions +}
+- {- delletions -]
+- [- delletions -}

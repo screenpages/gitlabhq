@@ -13,7 +13,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
     fill_in 'user_website_url', with: 'testurl'
     fill_in 'user_location', with: 'Ukraine'
     fill_in 'user_bio', with: 'I <3 GitLab'
-    click_button 'Save changes'
+    click_button 'Update profile settings'
     @user.reload
   end
 
@@ -28,13 +28,13 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
 
   step 'I change my avatar' do
     attach_file(:user_avatar, File.join(Rails.root, 'spec', 'fixtures', 'banana_sample.gif'))
-    click_button "Save changes"
+    click_button "Update profile settings"
     @user.reload
   end
 
   step 'I should see new avatar' do
     expect(@user.avatar).to be_instance_of AvatarUploader
-    expect(@user.avatar.url).to eq "/uploads/user/avatar/#{ @user.id }/banana_sample.gif"
+    expect(@user.avatar.url).to eq "/uploads/user/avatar/#{@user.id}/banana_sample.gif"
   end
 
   step 'I should see the "Remove avatar" button' do
@@ -43,7 +43,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
 
   step 'I have an avatar' do
     attach_file(:user_avatar, File.join(Rails.root, 'spec', 'fixtures', 'banana_sample.gif'))
-    click_button "Save changes"
+    click_button "Update profile settings"
     @user.reload
   end
 
@@ -60,11 +60,15 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
     expect(page).not_to have_link("Remove avatar")
   end
 
+  step 'I should see the gravatar host link' do
+    expect(page).to have_link("gravatar.com")
+  end
+
   step 'I try change my password w/o old one' do
     page.within '.update-password' do
       fill_in "user_password", with: "22233344"
       fill_in "user_password_confirmation", with: "22233344"
-      click_button "Save"
+      click_button "Save password"
     end
   end
 
@@ -73,7 +77,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
       fill_in "user_current_password", with: "12345678"
       fill_in "user_password", with: "22233344"
       fill_in "user_password_confirmation", with: "22233344"
-      click_button "Save"
+      click_button "Save password"
     end
   end
 
@@ -82,7 +86,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
       fill_in "user_current_password", with: "12345678"
       fill_in "user_password", with: "password"
       fill_in "user_password_confirmation", with: "confirmation"
-      click_button "Save"
+      click_button "Save password"
     end
   end
 
@@ -93,15 +97,15 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
   end
 
   step "I should see a password error message" do
-    page.within '.alert' do
+    page.within '.alert-danger' do
       expect(page).to have_content "Password confirmation doesn't match"
     end
   end
 
   step 'I reset my token' do
-    page.within '.update-token' do
+    page.within '.private-token' do
       @old_token = @user.private_token
-      click_button "Reset"
+      click_button "Reset private token"
     end
   end
 
@@ -155,15 +159,14 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
   end
 
   step 'I should see my user page' do
-    expect(page).to have_content "User Activity"
-
-    page.within '.navbar-gitlab' do
+    page.within ".cover-block" do
       expect(page).to have_content current_user.name
+      expect(page).to have_content current_user.username
     end
   end
 
   step 'I have group with projects' do
-    @group   = create(:group)
+    @group = create(:group)
     @group.add_owner(current_user)
     @project = create(:project, namespace: @group)
     @event   = create(:closed_issue_event, project: @project)
@@ -172,21 +175,23 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
   end
 
   step 'I should see groups I belong to' do
-    expect(page).to have_css('.profile-groups-avatars', visible: true)
-  end
+    page.within ".content" do
+      click_link "Groups"
+    end
 
-  step 'I click on new application button' do
-    click_on 'New Application'
+    page.within "#groups" do
+      expect(page).to have_content @group.name
+    end
   end
 
   step 'I should see application form' do
-    expect(page).to have_content "New Application"
+    expect(page).to have_content "Add new application"
   end
 
   step 'I fill application form out and submit' do
     fill_in :doorkeeper_application_name, with: 'test'
     fill_in :doorkeeper_application_redirect_uri, with: 'https://test.com'
-    click_on "Submit"
+    click_on "Save application"
   end
 
   step 'I see application' do
@@ -206,7 +211,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
   step 'I change name of application and submit' do
     expect(page).to have_content "Edit application"
     fill_in :doorkeeper_application_name, with: 'test_changed'
-    click_on "Submit"
+    click_on "Save application"
   end
 
   step 'I see that application was changed' do

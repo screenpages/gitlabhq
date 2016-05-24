@@ -1,53 +1,43 @@
 require 'spec_helper'
 
 feature 'Password reset', feature: true do
-  def forgot_password
-    click_on 'Forgot your password?'
-    fill_in 'Email', with: user.email
-    click_button 'Reset password'
-    user.reload
-  end
+  describe 'throttling' do
+    it 'sends reset instructions when not previously sent' do
+      user = create(:user)
+      forgot_password(user)
 
-  def get_reset_token
-    mail = ActionMailer::Base.deliveries.last
-    body = mail.body.encoded
-    body.scan(/reset_password_token=(.+)\"/).flatten.first
-  end
+      expect(page).to have_content(I18n.t('devise.passwords.send_paranoid_instructions'))
+      expect(current_path).to eq new_user_session_path
+      expect(user.recently_sent_password_reset?).to be_truthy
+    end
 
-  def reset_password(password = 'password')
-    visit edit_user_password_path(reset_password_token: get_reset_token)
+    it 'sends reset instructions when previously sent more than a minute ago' do
+      user = create(:user)
+      user.send_reset_password_instructions
+      user.update_attribute(:reset_password_sent_at, 5.minutes.ago)
 
-    fill_in 'New password', with: password
-    fill_in 'Confirm new password', with: password
-    click_button 'Change your password'
-  end
+      expect{ forgot_password(user) }.to change{ user.reset_password_sent_at }
+      expect(page).to have_content(I18n.t('devise.passwords.send_paranoid_instructions'))
+      expect(current_path).to eq new_user_session_path
+    end
 
-  describe 'with two-factor authentication' do
-    let(:user) { create(:user, :two_factor) }
+    it 'throttles multiple resets in a short timespan' do
+      user = create(:user)
+      user.send_reset_password_instructions
+      # Reload because PG handles datetime less precisely than Ruby/Rails
+      user.reload
 
-    it 'requires login after password reset' do
-      visit root_path
-
-      forgot_password
-      reset_password
-
-      expect(page).to have_content("Your password was changed successfully.")
-      expect(page).not_to have_content("You are now signed in.")
+      expect{ forgot_password(user) }.not_to change{ user.reset_password_sent_at }
+      expect(page).to have_content(I18n.t('devise.passwords.send_paranoid_instructions'))
       expect(current_path).to eq new_user_session_path
     end
   end
 
-  describe 'without two-factor authentication' do
-    let(:user) { create(:user) }
-
-    it 'automatically logs in after password reset' do
-      visit root_path
-
-      forgot_password
-      reset_password
-
-      expect(current_path).to eq root_path
-      expect(page).to have_content("Your password was changed successfully. You are now signed in.")
-    end
+  def forgot_password(user)
+    visit root_path
+    click_on 'Forgot your password?'
+    fill_in 'Email', with: user.email
+    click_button 'Reset password'
+    user.reload
   end
 end

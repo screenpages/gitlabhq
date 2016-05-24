@@ -1,9 +1,9 @@
 require 'spec_helper'
 
-describe ExtractsPath do
+describe ExtractsPath, lib: true do
   include ExtractsPath
   include RepoHelpers
-  include Rails.application.routes.url_helpers
+  include Gitlab::Routing.url_helpers
 
   let(:project) { double('project') }
 
@@ -28,6 +28,16 @@ describe ExtractsPath do
     it "log tree path should have no escape sequences" do
       assign_ref_vars
       expect(@logs_path).to eq("/#{@project.path_with_namespace}/refs/#{ref}/logs_tree/files/ruby/popen.rb")
+    end
+
+    context 'escaped sequences in ref' do
+      let(:ref) { "improve%2Fawesome" }
+
+      it "id should have no escape sequences" do
+        assign_ref_vars
+        expect(@ref).to eq('improve/awesome')
+        expect(@logs_path).to eq("/#{@project.path_with_namespace}/refs/#{ref}/logs_tree/files/ruby/popen.rb")
+      end
     end
   end
 

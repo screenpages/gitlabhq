@@ -1,14 +1,20 @@
-class ProjectsController < ApplicationController
-  prepend_before_filter :render_go_import, only: [:show]
-  skip_before_action :authenticate_user!, only: [:show, :activity]
+class ProjectsController < Projects::ApplicationController
+  include ExtractsPath
+
+  before_action :authenticate_user!, except: [:show, :activity]
   before_action :project, except: [:new, :create]
   before_action :repository, except: [:new, :create]
+  before_action :assign_ref_vars, :tree, only: [:show], if: :repo_exists?
 
   # Authorize
-  before_action :authorize_admin_project!, only: [:edit, :update, :destroy, :transfer, :archive, :unarchive]
+  before_action :authorize_admin_project!, only: [:edit, :update, :housekeeping]
   before_action :event_filter, only: [:show, :activity]
 
   layout :determine_layout
+
+  def index
+    redirect_to(current_user ? root_path : explore_root_path)
+  end
 
   def new
     @project = Project.new
@@ -24,7 +30,7 @@ class ProjectsController < ApplicationController
     if @project.saved?
       redirect_to(
         project_path(@project),
-        notice: 'Project was successfully created.'
+        notice: "Project '#{@project.name}' was successfully created."
       )
     else
       render 'new'
@@ -34,13 +40,16 @@ class ProjectsController < ApplicationController
   def update
     status = ::Projects::UpdateService.new(@project, current_user, project_params).execute
 
+    # Refresh the repo in case anything changed
+    @repository = project.repository
+
     respond_to do |format|
       if status
-        flash[:notice] = 'Project was successfully updated.'
+        flash[:notice] = "Project '#{@project.name}' was successfully updated."
         format.html do
           redirect_to(
             edit_project_path(@project),
-            notice: 'Project was successfully updated.'
+            notice: "Project '#{@project.name}' was successfully updated."
           )
         end
         format.js
@@ -52,11 +61,21 @@ class ProjectsController < ApplicationController
   end
 
   def transfer
+    return access_denied! unless can?(current_user, :change_namespace, @project)
+
     namespace = Namespace.find_by(id: params[:new_namespace_id])
     ::Projects::TransferService.new(project, current_user).execute(namespace)
 
     if @project.errors[:new_namespace].present?
       flash[:alert] = @project.errors[:new_namespace].first
+    end
+  end
+
+  def remove_fork
+    return access_denied! unless can?(current_user, :remove_fork_project, @project)
+
+    if ::Projects::UnlinkForkService.new(@project, current_user).execute
+      flash[:notice] = 'The fork relationship has been removed.'
     end
   end
 
@@ -76,8 +95,14 @@ class ProjectsController < ApplicationController
       return
     end
 
+    if @project.pending_delete?
+      flash[:alert] = "Project queued for delete."
+    end
+
     respond_to do |format|
       format.html do
+        @notification_setting = current_user.notification_settings_for(@project) if current_user
+
         if @project.repository_exists?
           if @project.empty_repo?
             render 'projects/empty'
@@ -99,14 +124,10 @@ class ProjectsController < ApplicationController
   def destroy
     return access_denied! unless can?(current_user, :remove_project, @project)
 
-    ::Projects::DestroyService.new(@project, current_user, {}).execute
-    flash[:alert] = 'Project deleted.'
+    ::Projects::DestroyService.new(@project, current_user, {}).pending_delete!
+    flash[:alert] = "Project '#{@project.name}' will be deleted."
 
-    if request.referer.include?('/admin')
-      redirect_to admin_namespaces_projects_path
-    else
-      redirect_to dashboard_path
-    end
+    redirect_to dashboard_projects_path
   rescue Projects::DestroyService::DestroyError => ex
     redirect_to edit_project_path(@project), alert: ex.message
   end
@@ -114,12 +135,13 @@ class ProjectsController < ApplicationController
   def autocomplete_sources
     note_type = params['type']
     note_id = params['type_id']
-    autocomplete = ::Projects::AutocompleteService.new(@project)
+    autocomplete = ::Projects::AutocompleteService.new(@project, current_user)
     participants = ::Projects::ParticipantsService.new(@project, current_user).execute(note_type, note_id)
 
     @suggestions = {
-      emojis: autocomplete_emojis,
+      emojis: AwardEmoji.urls,
       issues: autocomplete.issues,
+      milestones: autocomplete.milestones,
       mergerequests: autocomplete.merge_requests,
       members: participants
     }
@@ -131,6 +153,7 @@ class ProjectsController < ApplicationController
 
   def archive
     return access_denied! unless can?(current_user, :archive_project, @project)
+
     @project.archive!
 
     respond_to do |format|
@@ -140,6 +163,7 @@ class ProjectsController < ApplicationController
 
   def unarchive
     return access_denied! unless can?(current_user, :archive_project, @project)
+
     @project.unarchive!
 
     respond_to do |format|
@@ -147,19 +171,33 @@ class ProjectsController < ApplicationController
     end
   end
 
+  def housekeeping
+    ::Projects::HousekeepingService.new(@project).execute
+
+    redirect_to(
+      project_path(@project),
+      notice: "Housekeeping successfully started"
+    )
+  rescue ::Projects::HousekeepingService::LeaseTaken => ex
+    redirect_to(
+      edit_project_path(@project),
+      alert: ex.to_s
+    )
+  end
+
   def toggle_star
     current_user.toggle_star(@project)
     @project.reload
 
     render json: {
-      html: view_to_html_string("projects/buttons/_star")
+      star_count: @project.star_count
     }
   end
 
   def markdown_preview
     text = params[:text]
 
-    ext = Gitlab::ReferenceExtractor.new(@project, current_user)
+    ext = Gitlab::ReferenceExtractor.new(@project, current_user, current_user)
     ext.analyze(text)
 
     render json: {
@@ -191,30 +229,22 @@ class ProjectsController < ApplicationController
 
   def project_params
     params.require(:project).permit(
-      :name, :path, :description, :issues_tracker, :tag_list,
-      :issues_enabled, :merge_requests_enabled, :snippets_enabled, :issues_tracker_id, :default_branch,
-      :wiki_enabled, :visibility_level, :import_url, :last_activity_at, :namespace_id, :avatar
+      :name, :path, :description, :issues_tracker, :tag_list, :runners_token,
+      :issues_enabled, :merge_requests_enabled, :snippets_enabled, :container_registry_enabled,
+      :issues_tracker_id, :default_branch,
+      :wiki_enabled, :visibility_level, :import_url, :last_activity_at, :namespace_id, :avatar,
+      :builds_enabled, :build_allow_git_fetch, :build_timeout_in_minutes, :build_coverage_regex,
+      :public_builds,
     )
   end
 
-  def autocomplete_emojis
-    Rails.cache.fetch("autocomplete-emoji-#{Gemojione::VERSION}") do
-      Emoji.emojis.map do |name, emoji|
-        {
-          name: name,
-          path: view_context.image_url("emoji/#{emoji["unicode"]}.png")
-        }
-      end
-    end
+  def repo_exists?
+    project.repository_exists? && !project.empty_repo?
   end
 
-  def render_go_import
-    return unless params["go-get"] == "1"
-
-    @namespace = params[:namespace_id]
-    @id = params[:project_id] || params[:id]
-    @id = @id.gsub(/\.git\Z/, "")
-
-    render "go_import", layout: false
+  # Override get_id from ExtractsPath, which returns the branch and file path
+  # for the blob/tree, which in this case is just the root of the default branch.
+  def get_id
+    project.repository.root_ref
   end
 end

@@ -9,7 +9,7 @@ bundle exec rake setup
 ```
 
 The `setup` task is a alias for `gitlab:setup`.
-This tasks calls `db:setup` to create the database, calls `add_limits_mysql` that adds limits to the database schema in case of a MySQL database and fianlly it calls `db:seed_fu` to seed the database.
+This tasks calls `db:reset` to create the database, calls `add_limits_mysql` that adds limits to the database schema in case of a MySQL database and finally it calls `db:seed_fu` to seed the database.
 Note: `db:setup` calls `db:seed` but this does nothing.
 
 ## Run tests
@@ -26,4 +26,10 @@ You can find results under the `doc/code` directory.
 
 ```
 bundle exec rake gitlab:generate_docs
+```
+
+## Generate API documentation for project services (e.g. Slack)
+
+```
+bundle exec rake services:doc
 ```

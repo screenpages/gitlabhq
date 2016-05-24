@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe ExternalIssue do
+describe ExternalIssue, models: true do
   let(:project) { double('project', to_reference: 'namespace1/project1') }
   let(:issue)   { described_class.new('EXT-1234', project) }
 
@@ -8,6 +8,21 @@ describe ExternalIssue do
     subject { described_class }
 
     it { is_expected.to include_module(Referable) }
+  end
+
+  describe '.reference_pattern' do
+    it 'allows underscores in the project name' do
+      expect(ExternalIssue.reference_pattern.match('EXT_EXT-1234')[0]).to eq 'EXT_EXT-1234'
+    end
+
+    it 'allows numbers in the project name' do
+      expect(ExternalIssue.reference_pattern.match('EXT3_EXT-1234')[0]).to eq 'EXT3_EXT-1234'
+    end
+
+    it 'requires the project name to begin with A-Z' do
+      expect(ExternalIssue.reference_pattern.match('3EXT_EXT-1234')).to eq nil
+      expect(ExternalIssue.reference_pattern.match('EXT_EXT-1234')[0]).to eq 'EXT_EXT-1234'
+    end
   end
 
   describe '#to_reference' do
@@ -19,6 +34,21 @@ describe ExternalIssue do
   describe '#title' do
     it 'returns a title' do
       expect(issue.title).to eq "External Issue #{issue}"
+    end
+  end
+
+  describe '#reference_link_text' do
+    context 'if issue id has a prefix' do
+      it 'returns the issue ID' do
+        expect(issue.reference_link_text).to eq 'EXT-1234'
+      end
+    end
+
+    context 'if issue id is a number' do
+      let(:issue)   { described_class.new('1234', project) }
+      it 'returns the issue ID prefixed by #' do
+        expect(issue.reference_link_text).to eq '#1234'
+      end
     end
   end
 end

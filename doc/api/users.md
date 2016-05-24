@@ -20,6 +20,7 @@ GET /users
     "name": "John Smith",
     "state": "active",
     "avatar_url": "http://localhost:3000/uploads/user/avatar/1/cd8.jpeg",
+    "web_url": "http://localhost:3000/u/john_smith"
   },
   {
     "id": 2,
@@ -27,6 +28,7 @@ GET /users
     "name": "Jack Smith",
     "state": "blocked",
     "avatar_url": "http://gravatar.com/../e32131cd8.jpeg",
+    "web_url": "http://localhost:3000/u/jack_smith"
   }
 ]
 ```
@@ -45,21 +47,31 @@ GET /users
     "email": "john@example.com",
     "name": "John Smith",
     "state": "active",
+    "avatar_url": "http://localhost:3000/uploads/user/avatar/1/index.jpg",
+    "web_url": "http://localhost:3000/u/john_smith",
     "created_at": "2012-05-23T08:00:58Z",
+    "is_admin": false,
     "bio": null,
+    "location": null,
     "skype": "",
     "linkedin": "",
     "twitter": "",
     "website_url": "",
-    "extern_uid": "john.smith",
-    "provider": "provider_name",
+    "last_sign_in_at": "2012-06-01T11:41:01Z",
+    "confirmed_at": "2012-05-23T09:05:22Z",
     "theme_id": 1,
     "color_scheme_id": 2,
-    "is_admin": false,
-    "avatar_url": "http://localhost:3000/uploads/user/avatar/1/cd8.jpeg",
+    "projects_limit": 100,
+    "current_sign_in_at": "2012-06-02T06:36:55Z",
+    "identities": [
+      {"provider": "github", "extern_uid": "2435223452345"},
+      {"provider": "bitbucket", "extern_uid": "john.smith"},
+      {"provider": "google_oauth2", "extern_uid": "8776128412476123468721346"}
+    ],
     "can_create_group": true,
-    "current_sign_in_at": "2014-03-19T13:12:15Z",
-    "two_factor_enabled": true
+    "can_create_project": true,
+    "two_factor_enabled": true,
+    "external": false
   },
   {
     "id": 2,
@@ -67,30 +79,44 @@ GET /users
     "email": "jack@example.com",
     "name": "Jack Smith",
     "state": "blocked",
+    "avatar_url": "http://localhost:3000/uploads/user/avatar/2/index.jpg",
+    "web_url": "http://localhost:3000/u/jack_smith",
     "created_at": "2012-05-23T08:01:01Z",
+    "is_admin": false,
     "bio": null,
+    "location": null,
     "skype": "",
     "linkedin": "",
     "twitter": "",
     "website_url": "",
-    "extern_uid": "jack.smith",
-    "provider": "provider_name",
+    "last_sign_in_at": null,
+    "confirmed_at": "2012-05-30T16:53:06.148Z",
     "theme_id": 1,
     "color_scheme_id": 3,
-    "is_admin": false,
-    "avatar_url": "http://localhost:3000/uploads/user/avatar/1/cd8.jpeg",
-    "can_create_group": true,
-    "can_create_project": true,
     "projects_limit": 100,
     "current_sign_in_at": "2014-03-19T17:54:13Z",
-    "two_factor_enabled": false
+    "identities": [],
+    "can_create_group": true,
+    "can_create_project": true,
+    "two_factor_enabled": true,
+    "external": false
   }
 ]
 ```
 
 You can search for users by email or username with: `/users?search=John`
 
-Also see `def search query` in `app/models/user.rb`.
+In addition, you can lookup users by username:
+
+```
+GET /users?username=:username
+```
+
+For example:
+
+```
+GET /users?username=jack_smith
+```
 
 ## Single user
 
@@ -113,6 +139,15 @@ Parameters:
   "name": "John Smith",
   "state": "active",
   "avatar_url": "http://localhost:3000/uploads/user/avatar/1/cd8.jpeg",
+  "web_url": "http://localhost:3000/u/john_smith",
+  "created_at": "2012-05-23T08:00:58Z",
+  "is_admin": false,
+  "bio": null,
+  "location": null,
+  "skype": "",
+  "linkedin": "",
+  "twitter": "",
+  "website_url": ""
 }
 ```
 
@@ -133,20 +168,31 @@ Parameters:
   "email": "john@example.com",
   "name": "John Smith",
   "state": "active",
+  "avatar_url": "http://localhost:3000/uploads/user/avatar/1/index.jpg",
+  "web_url": "http://localhost:3000/u/john_smith",
   "created_at": "2012-05-23T08:00:58Z",
+  "is_admin": false,
   "bio": null,
+  "location": null,
   "skype": "",
   "linkedin": "",
   "twitter": "",
   "website_url": "",
-  "extern_uid": "john.smith",
-  "provider": "provider_name",
+  "last_sign_in_at": "2012-06-01T11:41:01Z",
+  "confirmed_at": "2012-05-23T09:05:22Z",
   "theme_id": 1,
   "color_scheme_id": 2,
-  "is_admin": false,
+  "projects_limit": 100,
+  "current_sign_in_at": "2012-06-02T06:36:55Z",
+  "identities": [
+    {"provider": "github", "extern_uid": "2435223452345"},
+    {"provider": "bitbucket", "extern_uid": "john.smith"},
+    {"provider": "google_oauth2", "extern_uid": "8776128412476123468721346"}
+  ],
   "can_create_group": true,
   "can_create_project": true,
-  "projects_limit": 100
+  "two_factor_enabled": true,
+  "external": false
 }
 ```
 
@@ -172,9 +218,11 @@ Parameters:
 - `extern_uid` (optional)       - External UID
 - `provider` (optional)         - External provider name
 - `bio` (optional)              - User's biography
+- `location` (optional)         - User's location
 - `admin` (optional)            - User is admin - true or false (default)
 - `can_create_group` (optional) - User can create groups - true or false
 - `confirm` (optional)          - Require confirmation - true (default) or false
+- `external` (optional)         - Flags the user as external - true or false(default)
 
 ## User modification
 
@@ -198,8 +246,10 @@ Parameters:
 - `extern_uid`                  - External UID
 - `provider`                    - External provider name
 - `bio`                         - User's biography
+- `location` (optional)         - User's location
 - `admin` (optional)            - User is admin - true or false (default)
 - `can_create_group` (optional) - User can create groups - true or false
+- `external` (optional)         - Flags the user as external - true or false(default)
 
 Note, at the moment this method does only return a 404 error,
 even in cases where a 409 (Conflict) would be more appropriate,
@@ -235,20 +285,33 @@ GET /user
   "username": "john_smith",
   "email": "john@example.com",
   "name": "John Smith",
-  "private_token": "dd34asd13as",
   "state": "active",
+  "avatar_url": "http://localhost:3000/uploads/user/avatar/1/index.jpg",
+  "web_url": "http://localhost:3000/u/john_smith",
   "created_at": "2012-05-23T08:00:58Z",
+  "is_admin": false,
   "bio": null,
+  "location": null,
   "skype": "",
   "linkedin": "",
   "twitter": "",
   "website_url": "",
+  "last_sign_in_at": "2012-06-01T11:41:01Z",
+  "confirmed_at": "2012-05-23T09:05:22Z",
   "theme_id": 1,
   "color_scheme_id": 2,
-  "is_admin": false,
+  "projects_limit": 100,
+  "current_sign_in_at": "2012-06-02T06:36:55Z",
+  "identities": [
+    {"provider": "github", "extern_uid": "2435223452345"},
+    {"provider": "bitbucket", "extern_uid": "john_smith"},
+    {"provider": "google_oauth2", "extern_uid": "8776128412476123468721346"}
+  ],
   "can_create_group": true,
   "can_create_project": true,
-  "projects_limit": 100
+  "two_factor_enabled": true,
+  "external": false,
+  "private_token": "dd34asd13as"
 }
 ```
 
@@ -397,6 +460,138 @@ Parameters:
 
 Will return `200 OK` on success, or `404 Not found` if either user or key cannot be found.
 
+## List emails
+
+Get a list of currently authenticated user's emails.
+
+```
+GET /user/emails
+```
+
+```json
+[
+  {
+    "id": 1,
+    "email": "email@example.com"
+  },
+  {
+    "id": 3,
+    "email": "email2@example.com"
+  }
+]
+```
+
+Parameters:
+
+- **none**
+
+## List emails for user
+
+Get a list of a specified user's emails. Available only for admin
+
+```
+GET /users/:uid/emails
+```
+
+Parameters:
+
+- `uid` (required) - id of specified user
+
+## Single email
+
+Get a single email.
+
+```
+GET /user/emails/:id
+```
+
+Parameters:
+
+- `id` (required) - email ID
+
+```json
+{
+  "id": 1,
+  "email": "email@example.com"
+}
+```
+
+## Add email
+
+Creates a new email owned by the currently authenticated user.
+
+```
+POST /user/emails
+```
+
+Parameters:
+
+- `email` (required) - email address
+
+```json
+{
+  "id": 4,
+  "email": "email@example.com"
+}
+```
+
+Will return created email with status `201 Created` on success. If an
+error occurs a `400 Bad Request` is returned with a message explaining the error:
+
+```json
+{
+  "message": {
+    "email": [
+      "has already been taken"
+    ]
+  }
+}
+```
+
+## Add email for user
+
+Create new email owned by specified user. Available only for admin
+
+```
+POST /users/:id/emails
+```
+
+Parameters:
+
+- `id` (required)    - id of specified user
+- `email` (required) - email address
+
+Will return created email with status `201 Created` on success, or `404 Not found` on fail.
+
+## Delete email for current user
+
+Deletes email owned by currently authenticated user.
+This is an idempotent function and calling it on a email that is already deleted
+or not available results in `200 OK`.
+
+```
+DELETE /user/emails/:id
+```
+
+Parameters:
+
+- `id` (required) - email ID
+
+## Delete email for given user
+
+Deletes email owned by a specified user. Available only for admin.
+
+```
+DELETE /users/:uid/emails/:id
+```
+
+Parameters:
+
+- `uid` (required) - id of specified user
+- `id` (required)  - email ID
+
+Will return `200 OK` on success, or `404 Not found` if either user or email cannot be found.
+
 ## Block user
 
 Blocks the specified user.  Available only for admin.
@@ -409,7 +604,8 @@ Parameters:
 
 - `uid` (required) - id of specified user
 
-Will return `200 OK` on success, or `404 User Not Found` is user cannot be found.
+Will return `200 OK` on success, `404 User Not Found` is user cannot be found or
+`403 Forbidden` when trying to block an already blocked user by LDAP synchronization.
 
 ## Unblock user
 
@@ -423,4 +619,5 @@ Parameters:
 
 - `uid` (required) - id of specified user
 
-Will return `200 OK` on success, or `404 User Not Found` is user cannot be found.
+Will return `200 OK` on success, `404 User Not Found` is user cannot be found or
+`403 Forbidden` when trying to unblock a user blocked by LDAP synchronization.

@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe CreateSnippetService do
+describe CreateSnippetService, services: true do
   before do
     @user = create :user
     @admin = create :user, admin: true
@@ -23,7 +23,7 @@ describe CreateSnippetService do
       snippet = create_snippet(nil, @user, @opts)
       expect(snippet.errors.messages).to have_key(:visibility_level)
       expect(snippet.errors.messages[:visibility_level].first).to(
-        match('Public visibility has been restricted')
+        match('has been restricted')
       )
     end
 

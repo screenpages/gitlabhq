@@ -1,21 +1,6 @@
-# == Schema Information
-#
-# Table name: namespaces
-#
-#  id          :integer          not null, primary key
-#  name        :string(255)      not null
-#  path        :string(255)      not null
-#  owner_id    :integer
-#  created_at  :datetime
-#  updated_at  :datetime
-#  type        :string(255)
-#  description :string(255)      default(""), not null
-#  avatar      :string(255)
-#
-
 require 'spec_helper'
 
-describe Group do
+describe Group, models: true do
   let!(:group) { create(:group) }
 
   describe 'associations' do
@@ -35,6 +20,42 @@ describe Group do
     it { is_expected.to validate_presence_of :path }
     it { is_expected.to validate_uniqueness_of(:path) }
     it { is_expected.not_to validate_presence_of :owner }
+  end
+
+  describe '.visible_to_user' do
+    let!(:group) { create(:group) }
+    let!(:user)  { create(:user) }
+
+    subject { described_class.visible_to_user(user) }
+
+    describe 'when the user has access to a group' do
+      before do
+        group.add_user(user, Gitlab::Access::MASTER)
+      end
+
+      it { is_expected.to eq([group]) }
+    end
+
+    describe 'when the user does not have access to any groups' do
+      it { is_expected.to eq([]) }
+    end
+  end
+
+  describe 'scopes' do
+    let!(:private_group)  { create(:group, :private)  }
+    let!(:internal_group) { create(:group, :internal) }
+
+    describe 'public_only' do
+      subject { described_class.public_only.to_a }
+
+      it{ is_expected.to eq([group]) }
+    end
+
+    describe 'public_and_internal_only' do
+      subject { described_class.public_and_internal_only.to_a }
+
+      it{ is_expected.to match_array([group, internal_group]) }
+    end
   end
 
   describe '#to_reference' do
@@ -82,6 +103,32 @@ describe Group do
     it "should be false if avatar is html page" do
       group.update_attribute(:avatar, 'uploads/avatar.html')
       expect(group.avatar_type).to eq(["only images allowed"])
+    end
+  end
+
+  describe '.search' do
+    it 'returns groups with a matching name' do
+      expect(described_class.search(group.name)).to eq([group])
+    end
+
+    it 'returns groups with a partially matching name' do
+      expect(described_class.search(group.name[0..2])).to eq([group])
+    end
+
+    it 'returns groups with a matching name regardless of the casing' do
+      expect(described_class.search(group.name.upcase)).to eq([group])
+    end
+
+    it 'returns groups with a matching path' do
+      expect(described_class.search(group.path)).to eq([group])
+    end
+
+    it 'returns groups with a partially matching path' do
+      expect(described_class.search(group.path[0..2])).to eq([group])
+    end
+
+    it 'returns groups with a matching path regardless of the casing' do
+      expect(described_class.search(group.path.upcase)).to eq([group])
     end
   end
 end

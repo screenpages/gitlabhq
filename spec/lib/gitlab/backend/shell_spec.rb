@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe Gitlab::Shell do
+describe Gitlab::Shell, lib: true do
   let(:project) { double('Project', id: 7, path: 'diaspora') }
   let(:gitlab_shell) { Gitlab::Shell.new }
 
@@ -15,4 +15,17 @@ describe Gitlab::Shell do
   it { is_expected.to respond_to :fork_repository }
 
   it { expect(gitlab_shell.url_to_repo('diaspora')).to eq(Gitlab.config.gitlab_shell.ssh_path_prefix + "diaspora.git") }
+
+  describe Gitlab::Shell::KeyAdder, lib: true do
+    describe '#add_key' do
+      it 'normalizes space characters in the key' do
+        io = spy
+        adder = described_class.new(io)
+
+        adder.add_key('key-42', "sha-rsa foo\tbar\tbaz")
+
+        expect(io).to have_received(:puts).with("key-42\tsha-rsa foo bar baz")
+      end
+    end
+  end
 end

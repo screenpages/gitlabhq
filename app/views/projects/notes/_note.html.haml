@@ -1,65 +1,38 @@
-%li.timeline-entry{ id: dom_id(note), class: [dom_class(note), "note-row-#{note.id}", ('system-note' if note.system)], data: { discussion: note.discussion_id } }
+- return unless note.author
+- return if note.cross_reference_not_visible_for?(current_user)
+
+- note_editable = note_editable?(note)
+%li.timeline-entry{ id: dom_id(note), class: ["note", "note-row-#{note.id}", ('system-note' if note.system)], data: {author_id: note.author.id, editable: note_editable} }
   .timeline-entry-inner
     .timeline-icon
-      - if note.system
-        %span= icon('circle')
-      - else
-        = link_to user_path(note.author) do
-          = image_tag avatar_icon(note.author_email), class: 'avatar s40', alt: ''
+      %a{href: user_path(note.author)}
+        = image_tag avatar_icon(note.author), alt: '', class: 'avatar s40'
     .timeline-content
       .note-header
-        - if note_editable?(note)
-          .note-actions
-            = link_to '#', title: 'Edit comment', class: 'js-note-edit' do
-              = icon('pencil-square-o')
-
-            = link_to namespace_project_note_path(note.project.namespace, note.project, note), title: 'Remove comment', method: :delete, data: { confirm: 'Are you sure you want to remove this comment?' }, remote: true, class: 'js-note-delete danger' do
-              = icon('trash-o')
-
-        - unless note.system
-          - member = note.project.team.find_member(note.author.id)
-          - if member
-            %span.note-role.label
-              = member.human_access
-
-        - if note.system
-          = link_to user_path(note.author) do
-            = image_tag avatar_icon(note.author_email), class: 'avatar s16', alt: ''
-
         = link_to_member(note.project, note.author, avatar: false)
-
-        %span.author-username
-          = '@' + note.author.username
-
-        %span.note-last-update
-          = link_to "##{dom_id(note)}", name: dom_id(note), title: "Link here" do
-            = note_timestamp(note)
-
-        - if note.superceded?(@notes)
-          - if note.upvote?
-            %span.vote.upvote.label.label-gray.strikethrough
-              = icon('thumbs-up')
-              \+1
-          - if note.downvote?
-            %span.vote.downvote.label.label-gray.strikethrough
-              = icon('thumbs-down')
-              \-1
-        - else
-          - if note.upvote?
-            %span.vote.upvote.label.label-success
-              = icon('thumbs-up')
-              \+1
-          - if note.downvote?
-            %span.vote.downvote.label.label-danger
-              = icon('thumbs-down')
-              \-1
-
-
-      .note-body{class: note_editable?(note) ? 'js-task-list-container' : ''}
+        .inline.note-headline-light
+          = note.author.to_reference
+          - unless note.system
+            commented
+          %a{ href: "##{dom_id(note)}" }
+            = time_ago_with_tooltip(note.created_at, placement: 'bottom', html_class: 'note-created-ago')
+        .note-actions
+          - access = note.project.team.human_max_access(note.author.id)
+          - if access
+            %span.note-role
+              = access
+          - if note_editable
+            = link_to '#', title: 'Edit comment', class: 'note-action-button js-note-edit' do
+              = icon('pencil')
+            = link_to namespace_project_note_path(note.project.namespace, note.project, note), title: 'Remove comment', method: :delete, data: { confirm: 'Are you sure you want to remove this comment?' }, remote: true, class: 'note-action-button js-note-delete danger' do
+              = icon('trash-o')
+      .note-body{class: note_editable ? 'js-task-list-container' : ''}
         .note-text
           = preserve do
-            = markdown(note.note, {no_header_anchors: true})
-        = render 'projects/notes/edit_form', note: note
+            = markdown(note.note, pipeline: :note, cache_key: [note, "note"])
+        - if note_editable
+          = render 'projects/notes/edit_form', note: note
+      = edited_time_ago_with_tooltip(note, placement: 'bottom', html_class: 'note_edited_ago', include_author: true)
 
       - if note.attachment.url
         .note-attachment
@@ -73,4 +46,3 @@
               = link_to delete_attachment_namespace_project_note_path(note.project.namespace, note.project, note),
                 title: 'Delete this attachment', method: :delete, remote: true, data: { confirm: 'Are you sure you want to remove the attachment?' }, class: 'danger js-note-attachment-delete' do
                 = icon('trash-o', class: 'cred')
-      .clear

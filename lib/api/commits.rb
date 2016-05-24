@@ -12,14 +12,20 @@ module API
       # Parameters:
       #   id (required) - The ID of a project
       #   ref_name (optional) - The name of a repository branch or tag, if not given the default branch is used
+      #   since (optional) - Only commits after or in this date will be returned
+      #   until (optional) - Only commits before or in this date will be returned
       # Example Request:
       #   GET /projects/:id/repository/commits
       get ":id/repository/commits" do
+        datetime_attributes! :since, :until
+
         page = (params[:page] || 0).to_i
         per_page = (params[:per_page] || 20).to_i
         ref = params[:ref_name] || user_project.try(:default_branch) || 'master'
+        after = params[:since]
+        before = params[:until]
 
-        commits = user_project.repository.commits(ref, nil, per_page, page * per_page)
+        commits = user_project.repository.commits(ref, limit: per_page, offset: page * per_page, after: after, before: before)
         present commits, with: Entities::RepoCommit
       end
 
@@ -48,7 +54,7 @@ module API
         sha = params[:sha]
         commit = user_project.commit(sha)
         not_found! "Commit" unless commit
-        commit.diffs
+        commit.diffs.to_a
       end
 
       # Get a commit's comments
@@ -90,9 +96,9 @@ module API
         }
 
         if params[:path] && params[:line] && params[:line_type]
-          commit.diffs.each do |diff|
+          commit.diffs(all_diffs: true).each do |diff|
             next unless diff.new_path == params[:path]
-            lines = Gitlab::Diff::Parser.new.parse(diff.diff.lines.to_a)
+            lines = Gitlab::Diff::Parser.new.parse(diff.diff.each_line)
 
             lines.each do |line|
               next unless line.new_pos == params[:line].to_i && line.type == params[:line_type]
@@ -101,6 +107,8 @@ module API
 
             break if opts[:line_code]
           end
+
+          opts[:type] = LegacyDiffNote.name if opts[:line_code]
         end
 
         note = ::Notes::CreateService.new(user_project, current_user, opts).execute

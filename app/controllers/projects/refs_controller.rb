@@ -1,7 +1,9 @@
 class Projects::RefsController < Projects::ApplicationController
   include ExtractsPath
+  include TreeHelper
 
   before_action :require_non_empty_project
+  before_action :validate_ref_id
   before_action :assign_ref_vars
   before_action :authorize_download_code!
 
@@ -18,8 +20,12 @@ class Projects::RefsController < Projects::ApplicationController
             namespace_project_network_path(@project.namespace, @project, @id, @options)
           when "graphs"
             namespace_project_graph_path(@project.namespace, @project, @id)
+          when "find_file"
+            namespace_project_find_file_path(@project.namespace, @project, @id)
           when "graphs_commits"
             commits_namespace_project_graph_path(@project.namespace, @project, @id)
+          when "badges"
+            namespace_project_badges_path(@project.namespace, @project, ref: @id)
           else
             namespace_project_commits_path(@project.namespace, @project, @id)
           end
@@ -60,9 +66,20 @@ class Projects::RefsController < Projects::ApplicationController
       }
     end
 
+    offset = (@offset + @limit)
+    if contents.size > offset
+      @more_log_url = logs_file_namespace_project_ref_path(@project.namespace, @project, @ref, @path || '', offset: offset)
+    end
+
     respond_to do |format|
       format.html { render_404 }
       format.js
     end
+  end
+
+  private
+
+  def validate_ref_id
+    return not_found! if params[:id].present? && params[:id] !~ Gitlab::Regex.git_reference_regex
   end
 end

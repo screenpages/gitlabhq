@@ -28,12 +28,8 @@ module EmailsHelper
         return "View #{action.humanize.singularize}"
       end
     end
-  end
 
-  def color_email_diff(diffcontent)
-    formatter = Rugments::Formatters::HTML.new(cssclass: "highlight", inline_theme: :github)
-    lexer = Rugments::Lexers::Diff.new
-    raw formatter.format(lexer.lex(diffcontent))
+    nil
   end
 
   def password_reset_token_valid_time

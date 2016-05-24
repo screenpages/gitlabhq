@@ -7,81 +7,67 @@ describe VisibilityLevelHelper do
     init_haml_helpers
   end
 
-  let(:project) { create(:project) }
+  let(:project)          { build(:project) }
+  let(:group)            { build(:group) }
+  let(:personal_snippet) { build(:personal_snippet) }
+  let(:project_snippet)  { build(:project_snippet) }
 
   describe 'visibility_level_description' do
-    shared_examples 'a visibility level description' do
-      let(:desc) do
-        visibility_level_description(Gitlab::VisibilityLevel::PRIVATE,
-                                     form_model)
-      end
-
-      let(:expected_class) do
-        class_name = case form_model.class.name
-                     when 'String'
-                       form_model
-                     else
-                       form_model.class.name
-                     end
-
-        class_name.match(/(project|snippet)$/i)[0]
-      end
-
-      it 'should refer to the correct class' do
-        expect(desc).to match(/#{expected_class}/i)
+    context 'used with a Project' do
+      it 'delegates projects to #project_visibility_level_description' do
+        expect(visibility_level_description(Gitlab::VisibilityLevel::PRIVATE, project))
+            .to match /project/i
       end
     end
 
-    context 'form_model argument is a String' do
-      context 'model object is a personal snippet' do
-        it_behaves_like 'a visibility level description' do
-          let(:form_model) { 'PersonalSnippet' }
-        end
-      end
-
-      context 'model object is a project snippet' do
-        it_behaves_like 'a visibility level description' do
-          let(:form_model) { 'ProjectSnippet' }
-        end
-      end
-
-      context 'model object is a project' do
-        it_behaves_like 'a visibility level description' do
-          let(:form_model) { 'Project' }
-        end
+    context 'used with a Group' do
+      it 'delegates groups to #group_visibility_level_description' do
+        expect(visibility_level_description(Gitlab::VisibilityLevel::PRIVATE, group))
+            .to match /group/i
       end
     end
 
-    context 'form_model argument is a model object' do
-      context 'model object is a personal snippet' do
-        it_behaves_like 'a visibility level description' do
-          let(:form_model) { create(:personal_snippet) }
-        end
+    context 'called with a Snippet' do
+      it 'delegates snippets to #snippet_visibility_level_description' do
+        expect(visibility_level_description(Gitlab::VisibilityLevel::INTERNAL, project_snippet))
+            .to match /snippet/i
       end
+    end
+  end
 
-      context 'model object is a project snippet' do
-        it_behaves_like 'a visibility level description' do
-          let(:form_model) { create(:project_snippet, project: project) }
-        end
-      end
+  describe "#project_visibility_level_description" do
+    it "describes private projects" do
+      expect(project_visibility_level_description(Gitlab::VisibilityLevel::PRIVATE))
+            .to eq "Project access must be granted explicitly to each user."
+    end
 
-      context 'model object is a project' do
-        it_behaves_like 'a visibility level description' do
-          let(:form_model) { project }
-        end
-      end
+    it "describes public projects" do
+      expect(project_visibility_level_description(Gitlab::VisibilityLevel::PUBLIC))
+            .to eq "The project can be cloned without any authentication."
+    end
+  end
+
+  describe "#snippet_visibility_level_description" do
+    it 'describes visibility only for me' do
+      expect(snippet_visibility_level_description(Gitlab::VisibilityLevel::PRIVATE, personal_snippet))
+            .to eq "The snippet is visible only to me."
+    end
+
+    it 'describes visibility for project members' do
+      expect(snippet_visibility_level_description(Gitlab::VisibilityLevel::PRIVATE, project_snippet))
+            .to eq "The snippet is visible only to project members."
+    end
+
+    it 'defaults to personal snippet' do
+      expect(snippet_visibility_level_description(Gitlab::VisibilityLevel::PRIVATE))
+            .to eq "The snippet is visible only to me."
     end
   end
 
   describe "skip_level?" do
     describe "forks" do
-      let(:project) { create(:project, visibility_level: Gitlab::VisibilityLevel::INTERNAL) }
-      let(:fork_project) { create(:forked_project_with_submodules) }
-
-      before do
-        fork_project.build_forked_project_link(forked_to_project_id: fork_project.id, forked_from_project_id: project.id)
-        fork_project.save
-      end
+      let(:project)       { create(:project, :internal) }
+      let(:fork_project)  { create(:project, forked_from_project: project) }
 
       it "skips levels" do
         expect(skip_level?(fork_project, Gitlab::VisibilityLevel::PUBLIC)).to be_truthy
@@ -91,7 +77,7 @@ describe VisibilityLevelHelper do
     end
 
     describe "non-forked project" do
-      let(:project) { create(:project, visibility_level: Gitlab::VisibilityLevel::INTERNAL) }
+      let(:project) { create(:project, :internal) }
 
       it "skips levels" do
         expect(skip_level?(project, Gitlab::VisibilityLevel::PUBLIC)).to be_falsey
@@ -101,7 +87,7 @@ describe VisibilityLevelHelper do
     end
 
     describe "Snippet" do
-      let(:snippet) { create(:snippet, visibility_level: Gitlab::VisibilityLevel::INTERNAL) }
+      let(:snippet) { create(:snippet, :internal) }
 
       it "skips levels" do
         expect(skip_level?(snippet, Gitlab::VisibilityLevel::PUBLIC)).to be_falsey

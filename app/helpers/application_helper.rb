@@ -13,7 +13,9 @@ module ApplicationHelper
   #   current_controller?(:commits)        # => false
   #   current_controller?(:commits, :tree) # => true
   def current_controller?(*args)
-    args.any? { |v| v.to_s.downcase == controller.controller_name }
+    args.any? do |v|
+      v.to_s.downcase == controller.controller_name || v.to_s.downcase == controller.controller_path
+    end
   end
 
   # Check if a particular action is the current one
@@ -33,7 +35,7 @@ module ApplicationHelper
   def project_icon(project_id, options = {})
     project =
       if project_id.is_a?(Project)
-        project = project_id
+        project_id
       else
         Project.find_with_namespace(project_id)
       end
@@ -59,30 +61,34 @@ module ApplicationHelper
     options[:class] ||= ''
     options[:class] << ' identicon'
     bg_key = project.id % 7
-    style = "background-color: ##{ allowed_colors.values[bg_key] }; color: #555"
+    style = "background-color: ##{allowed_colors.values[bg_key]}; color: #555"
 
     content_tag(:div, class: options[:class], style: style) do
       project.name[0, 1].upcase
     end
   end
 
-  def avatar_icon(user_email = '', size = nil)
-    user = User.find_by(email: user_email)
+  def avatar_icon(user_or_email = nil, size = nil, scale = 2)
+    if user_or_email.is_a?(User)
+      user = user_or_email
+    else
+      user = User.find_by_any_email(user_or_email.try(:downcase))
+    end
 
     if user
       user.avatar_url(size) || default_avatar
     else
-      gravatar_icon(user_email, size)
+      gravatar_icon(user_or_email, size, scale)
     end
   end
 
-  def gravatar_icon(user_email = '', size = nil)
-    GravatarService.new.execute(user_email, size) ||
+  def gravatar_icon(user_email = '', size = nil, scale = 2)
+    GravatarService.new.execute(user_email, size, scale) ||
       default_avatar
   end
 
   def default_avatar
-    image_path('no_avatar.png')
+    'no_avatar.png'
   end
 
   def last_commit(project)
@@ -110,12 +116,6 @@ module ApplicationHelper
     end
 
     grouped_options_for_select(options, @ref || @project.default_branch)
-  end
-
-  def emoji_autocomplete_source
-    # should be an array of strings
-    # so to_s can be called, because it is sufficient and to_json is too slow
-    Emoji.names.to_s
   end
 
   # Define whenever show last push event
@@ -163,22 +163,6 @@ module ApplicationHelper
     Gitlab.config.extra
   end
 
-  def search_placeholder
-    if @project && @project.persisted?
-      'Search in this project'
-    elsif @snippet || @snippets || @show_snippets
-      'Search snippets'
-    elsif @group && @group.persisted?
-      'Search in this group'
-    else
-      'Search'
-    end
-  end
-
-  def broadcast_message
-    BroadcastMessage.current
-  end
-
   # Render a `time` element with Javascript-based relative date and tooltip
   #
   # time       - Time object
@@ -198,14 +182,34 @@ module ApplicationHelper
   # Returns an HTML-safe String
   def time_ago_with_tooltip(time, placement: 'top', html_class: 'time_ago', skip_js: false)
     element = content_tag :time, time.to_s,
-      class: "#{html_class} js-timeago",
-      datetime: time.getutc.iso8601,
-      title: time.in_time_zone.stamp('Aug 21, 2011 9:23pm'),
-      data: { toggle: 'tooltip', placement: placement }
+      class: "#{html_class} js-timeago #{"js-timeago-pending" unless skip_js}",
+      datetime: time.to_time.getutc.iso8601,
+      title: time.to_time.in_time_zone.to_s(:medium),
+      data: { toggle: 'tooltip', placement: placement, container: 'body' }
 
-    element += javascript_tag "$('.js-timeago').timeago()" unless skip_js
+    unless skip_js
+      element << javascript_tag(
+        "$('.js-timeago-pending').removeClass('js-timeago-pending').timeago()"
+      )
+    end
 
     element
+  end
+
+  def edited_time_ago_with_tooltip(object, placement: 'top', html_class: 'time_ago', include_author: false)
+    return if object.updated_at == object.created_at
+
+    content_tag :small, class: "edited-text" do
+      output = content_tag(:span, "Edited ")
+      output << time_ago_with_tooltip(object.updated_at, placement: placement, html_class: html_class)
+
+      if include_author && object.updated_by && object.updated_by != object.author
+        output << content_tag(:span, " by ")
+        output << link_to_member(object.project, object.updated_by, avatar: false, author_class: nil)
+      end
+
+      output
+    end
   end
 
   def render_markup(file_name, file_content)
@@ -218,8 +222,7 @@ module ApplicationHelper
         file_content
       end
     else
-      GitHub::Markup.render(file_name, file_content).
-        force_encoding(file_content.encoding).html_safe
+      other_markup(file_name, file_content)
     end
   rescue RuntimeError
     simple_format(file_content)
@@ -251,12 +254,12 @@ module ApplicationHelper
 
   def page_filter_path(options = {})
     without = options.delete(:without)
+    add_label = options.delete(:label)
 
     exist_opts = {
       state: params[:state],
       scope: params[:scope],
-      label_name: params[:label_name],
-      milestone_id: params[:milestone_id],
+      milestone_title: params[:milestone_title],
       assignee_id: params[:assignee_id],
       author_id: params[:author_id],
       sort: params[:sort],
@@ -272,6 +275,13 @@ module ApplicationHelper
 
     path = request.path
     path << "?#{options.to_param}"
+    if add_label
+      if params[:label_name].present? and params[:label_name].respond_to?('any?')
+        params[:label_name].each do |label|
+          path << "&label_name[]=#{label}"
+        end
+      end
+    end
     path
   end
 
@@ -298,7 +308,7 @@ module ApplicationHelper
       if project.nil?
         nil
       elsif current_controller?(:issues)
-        project.issues.send(entity).count
+        project.issues.visible_to_user(current_user).send(entity).count
       elsif current_controller?(:merge_requests)
         project.merge_requests.send(entity).count
       end
@@ -311,5 +321,9 @@ module ApplicationHelper
     end
 
     html.html_safe
+  end
+
+  def truncate_first_line(message, length = 50)
+    truncate(message.each_line.first.chomp, length: length) if message
   end
 end

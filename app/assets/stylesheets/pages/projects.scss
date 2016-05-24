@@ -1,8 +1,19 @@
+.alert_holder {
+  margin: -16px;
+
+  .alert-link {
+    font-weight: normal;
+  }
+}
+.no-ssh-key-message, .project-limit-message {
+  background-color: #f28d35;
+  margin-bottom: 0;
+}
 .new_project,
 .edit_project {
   fieldset.features {
     .control-label {
-      font-weight: bold;
+      font-weight: normal;
     }
   }
 }
@@ -15,11 +26,25 @@
 }
 
 .project-home-panel {
-  text-align: center;
-  margin-bottom: 20px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid $border-color;
+
+  .cover-controls {
+    .project-settings-dropdown {
+      margin-left: 10px;
+      display: inline-block;
+
+      .dropdown-menu {
+        left: auto;
+        width: auto;
+        right: 0;
+        max-width: 240px;
+      }
+    }
+  }
 
   .project-identicon-holder {
-    margin-bottom: 15px;
+    margin-bottom: 16px;
 
     .avatar, .identicon {
       margin: 0 auto;
@@ -31,69 +56,113 @@
     }
   }
 
-  .lead {
-    p {
-      display: inline;
+  .notifications-btn {
+    margin-top: -28px;
+
+    .fa-bell {
+      margin-right: 6px;
     }
-  }
 
-  .git-clone-holder {
-    max-width: 600px;
-    margin: 0 auto;
-  }
-
-  .visibility-level-label {
-    color: $gray;
-    i {
-      color: inherit;
+    .fa-angle-down {
+      margin-left: 6px;
     }
   }
 
   .project-repo-buttons {
-    margin-top: 25px;
-    margin-bottom: 25px;
+    margin-top: 20px;
+    margin-bottom: 0;
+
+    .count-buttons {
+      display: block;
+      margin-bottom: 20px;
+    }
+
+    .clone-row {
+      .split-repo-buttons,
+      .project-clone-holder {
+        display: inline-block;
+      }
+
+      .split-repo-buttons {
+        margin: 0 12px;
+      }
+    }
 
     .btn {
-      @extend .btn-info;
+      @include btn-gray;
+      text-transform: none;
+    }
 
-      margin-left: 10px;
-      font-weight: bold;
-      font-size: 14px;
-      line-height: 16px;
-      padding: 8px 12px;
+    .count-with-arrow {
+      display: inline-block;
+      position: relative;
+      margin-left: 4px;
 
+      .arrow {
+        &:before {
+          content: '';
+          display: inline-block;
+          position: absolute;
+          width: 0;
+          height: 0;
+          border-color: transparent;
+          border-style: solid;
+          top: 50%;
+          left: 0;
+          margin-top: -6px;
+          border-width: 7px 5px 7px 0;
+          border-right-color: #dce0e5;
+        }
+
+        &:after {
+          content: '';
+          position: absolute;
+          width: 0;
+          height: 0;
+          border-color: transparent;
+          border-style: solid;
+          top: 50%;
+          left: 1px;
+          margin-top: -9px;
+          border-width: 10px 7px 10px 0;
+          border-right-color: #fff;
+        }
+      }
       .count {
-        padding-left: 7px;
+        @include btn-gray;
         display: inline-block;
-        margin-left: 7px;
+        background: white;
+        border-radius: 2px;
+        border-width: 1px;
+        border-style: solid;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 13px;
+        padding: $gl-vert-padding $gl-padding;
+        letter-spacing: .4px;
+        padding: 10px 14px;
+        text-align: center;
+        vertical-align: middle;
+        touch-action: manipulation;
+        cursor: pointer;
+        background-image: none;
+        white-space: nowrap;
+        margin: 0 11px 0 4px;
+
+        &:hover {
+          background: #fff;
+        }
       }
     }
   }
 }
 
-.git-clone-holder {
-  .project-home-dropdown + & {
-    margin-right: 45px;
-  }
+.split-one {
+  display: inline-table;
+  margin-right: 12px;
 
-  .form-control {
-    cursor: auto;
-    @extend .monospace;
-    background: #FAFAFA;
-    width: 100%;
-  }
-
-  .input-group-addon {
-    background: #FAFAFA;
-
-    &.git-protocols {
-      padding: 0;
-      border: none;
-
-      .input-group-btn:last-child > .btn {
-        @include border-radius-right(0);
-      }
-    }
+  a {
+    margin: -1px;
   }
 }
 
@@ -102,18 +171,19 @@
     margin-bottom: 10px;
 
     i {
-      margin: 0 3px;
+      margin: 2px 0;
       font-size: 20px;
     }
 
     .option-title {
-      font-weight: bold;
+      font-weight: normal;
       display: inline-block;
+      color: $gl-gray-dark;
     }
 
     .option-descr {
-      margin-left: 36px;
-      color: $gray;
+      margin-left: 29px;
+      color: #54565b;
     }
   }
 }
@@ -124,110 +194,39 @@
   color: #555;
 }
 
-ul.nav.nav-projects-tabs {
-  @extend .nav-tabs;
-
-  padding-left: 8px;
-
-  li {
-    a {
-      padding: 6px 25px;
-      margin-top: 2px;
-      border-color: #DDD;
-      background-color: #EEE;
-      text-shadow: 0 1px 1px white;
-      color: #555;
-    }
-    &.active {
-      a {
-        font-weight: bold;
-      }
-    }
-  }
-}
-
 .project_member_row form {
-  margin: 0px;
-}
-
-.my-projects,
-.public-projects {
-  li {
-    .project-info {
-      margin-bottom: 10px;
-      overflow: hidden;
-    }
-
-    .access-icon {
-      color: #AAA;
-      margin-left: 10px;
-      i {
-        color: #AAA;
-      }
-    }
-  }
-}
-
-.public-clone {
-  background: #EEE;
-  color: #777;
-  padding: 6px 10px;
-  margin: 1px;
-  font-weight: normal;
-}
-
-.public-projects .repo-info {
-  color: #777;
-
-  a {
-    color: #777;
-  }
-}
-
-.project-side {
-  .project-fork-icon {
-    float: left;
-    font-size: 26px;
-    margin-right: 10px;
-    line-height: 1.5;
-  }
-
-  .panel {
-    @include border-radius(3px);
-
-    .panel-heading, .panel-footer {
-      font-weight: normal;
-      background-color: transparent;
-      color: #666;
-      border-color: #EEE;
-    }
-
-    .actions {
-      margin-top: 10px;
-    }
-
-    .nav-pills a {
-      padding: 10px;
-      font-weight: bold;
-      color: $gl-link-color;
-    }
-
-    .nav {
-      margin-bottom: 15px;
-    }
-  }
-
-  .ci-status-image {
-    max-height: 22px;
-  }
+  margin: 0;
 }
 
 .transfer-project .select2-container {
   min-width: 200px;
 }
 
-.deploy-project-label {
-  margin: 1px;
+.deploy-key-content {
+  @media (min-width: $screen-sm-min) {
+    float: left;
+
+    &:last-child {
+      float: right;
+    }
+  }
+}
+
+.deploy-key-projects {
+  @media (min-width: $screen-sm-min) {
+    line-height: 42px;
+  }
+}
+
+a.deploy-project-label {
+  padding: 5px;
+  margin-right: 5px;
+  color: $gl-gray;
+  background-color: $row-hover;
+
+  &:hover {
+    color: $gl-link-color;
+  }
 }
 
 .vs-public {
@@ -244,45 +243,39 @@ ul.nav.nav-projects-tabs {
 
 .breadcrumb.repo-breadcrumb {
   padding: 0;
-  line-height: 34px;
-  background: white;
+  background: transparent;
   border: none;
-  font-size: 16px;
+  line-height: 36px;
+  margin: 0;
 
   > li + li:before {
     padding: 0 3px;
     color: #999;
   }
-}
 
-.fork-namespaces {
-  .thumbnail {
-
-    &.fork-exists-thumbnail {
-      border-color: #EEE;
-
-      .caption {
-        color: #999;
-      }
-    }
-
-    &.fork-thumbnail {
-      border-color: #AAA;
-
-      &:hover {
-        background-color: $hover;
-      }
-    }
-
-    a {
-      text-decoration: none;
-    }
+  a {
+    color: $gl-dark-link-color;
   }
 }
 
-table.table.protected-branches-list tr.no-border {
-  th, td {
-    border: 0;
+.last-push-widget {
+  margin-top: -1px;
+}
+
+.fork-namespaces {
+  .fork-thumbnail {
+    text-align: center;
+    margin-bottom: $gl-padding;
+
+    .caption {
+      padding: $gl-padding 0;
+      min-height: 30px;
+    }
+
+    img {
+      @include border-radius(50%);
+      max-width: 100px;
+    }
   }
 }
 
@@ -293,12 +286,219 @@ table.table.protected-branches-list tr.no-border {
 
 .project-stats {
   text-align: center;
+  margin-top: $gl-padding;
+  margin-bottom: 0;
+  padding-top: 10px;
+  padding-bottom: 4px;
 
-  ul.nav-pills { display:inline-block; }
-  li { display:inline; }
-  a { float:left; }
+  ul.nav {
+    display: inline-block;
+  }
+
+  .nav li {
+    display: inline;
+  }
+
+  .nav > li > a {
+    @include btn-default;
+    @include btn-gray;
+
+    background-color: transparent;
+    border: 1px solid #f7f8fa;
+    margin-left: 12px;
+  }
+
+  li {
+    display: inline;
+  }
+
+  a {
+    float: left;
+    font-size: 17px;
+  }
+
+  li.missing a {
+    color: #5a6069;
+    border: 1px dashed #dce0e5;
+
+    &:hover {
+      background-color: #f0f2f5;
+    }
+  }
 }
 
 pre.light-well {
   border-color: #f1f1f1;
+}
+
+.git-empty {
+  margin: 0 7px 7px;
+
+  h5 {
+    color: #5c5d5e;
+  }
+
+  .light-well {
+    @include border-radius (2px);
+
+    color: #5b6169;
+    font-size: 13px;
+    line-height: 1.6em;
+  }
+}
+
+.project-footer {
+  margin-top: 20px;
+
+  .btn-remove {
+    @include btn-middle;
+    @include btn-red;
+
+    float: left !important;
+  }
+}
+
+/*
+ * Projects list rendered on dashboard and user page
+ */
+
+.projects-list {
+  @include basic-list;
+
+  .project-row {
+    border-color: $table-border-color;
+
+    &.no-description {
+      .project {
+        line-height: 40px;
+      }
+    }
+
+    .project-full-name {
+      @include str-truncated;
+    }
+
+    .controls {
+      line-height: 40px;
+
+      a:hover {
+        text-decoration: none;
+      }
+
+      > span {
+        margin-left: 10px;
+      }
+    }
+  }
+
+  .bottom {
+    padding-top: $gl-padding;
+    padding-bottom: 0;
+  }
+}
+
+.panel .projects-list li {
+  padding: 10px 15px;
+  margin: 0;
+}
+
+.project-show-activity {
+  .activity-filter-block {
+    margin-top: -1px;
+  }
+}
+
+.project-last-commit {
+  .ci-status {
+    margin-right: 16px;
+  }
+
+  .commit-row-message {
+    color: $gl-gray;
+  }
+
+  .commit_short_id {
+    margin: 0 5px;
+    color: $gl-link-color;
+    font-weight: 600;
+  }
+
+  .commit-author-link {
+    margin-left: 7px;
+    text-decoration: none;
+    .avatar {
+      float: none;
+      margin-right: 4px;
+    }
+
+    .commit-author-name {
+      font-weight: 600;
+    }
+  }
+}
+
+.project-show-readme .readme-holder {
+  padding: $gl-padding 0;
+  border-top: 0;
+
+  .edit-project-readme {
+    z-index: 100;
+    position: relative;
+  }
+}
+
+.git-clone-holder {
+  width: 498px;
+
+  .btn-clipboard {
+    border: 1px solid $border-color;
+    padding: 6px $gl-padding;
+  }
+
+  .project-home-dropdown + & {
+    margin-right: 45px;
+  }
+
+  .clone-options {
+    display: table-cell;
+    a.btn {
+      width: 100%;
+    }
+  }
+
+  .form-control {
+    @extend .monospace;
+    background: #fff;
+    font-size: 14px;
+    margin-left: -1px;
+    cursor: auto;
+    width: 101%;
+  }
+}
+
+.cannot-be-merged,
+.cannot-be-merged:hover {
+  color: #e62958;
+  margin-top: 2px;
+}
+
+.private-forks-notice .private-fork-icon {
+  i:nth-child(1) {
+    color: #2aa056;
+  }
+
+  i:nth-child(2) {
+    color: #fff;
+  }
+}
+
+.protected-branches-list {
+  a {
+    color: $gl-gray;
+    font-weight: 600;
+
+    &:hover {
+      color: $gl-link-color;
+    }
+  }
 }

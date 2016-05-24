@@ -1,6 +1,7 @@
 class Spinach::Features::ProjectCreate < Spinach::FeatureSteps
   include SharedAuthentication
   include SharedPaths
+  include SharedUser
 
   step 'fill project form with valid data' do
     fill_in 'project_path', with: 'Empty'
@@ -12,31 +13,9 @@ class Spinach::Features::ProjectCreate < Spinach::FeatureSteps
     expect(current_path).to eq namespace_project_path(Project.last.namespace, Project.last)
   end
 
-  step 'I should see empty project instuctions' do
+  step 'I should see empty project instructions' do
     expect(page).to have_content "git init"
     expect(page).to have_content "git remote"
     expect(page).to have_content Project.last.url_to_repo
-  end
-
-  step 'I see empty project instuctions' do
-    expect(page).to have_content "git init"
-    expect(page).to have_content "git remote"
-    expect(page).to have_content Project.last.url_to_repo
-  end
-
-  step 'I click on HTTP' do
-    click_button 'HTTP'
-  end
-
-  step 'Remote url should update to http link' do
-    expect(page).to have_content "git remote add origin #{Project.last.http_url_to_repo}"
-  end
-
-  step 'If I click on SSH' do
-    click_button 'SSH'
-  end
-
-  step 'Remote url should update to ssh link' do
-    expect(page).to have_content "git remote add origin #{Project.last.url_to_repo}"
   end
 end

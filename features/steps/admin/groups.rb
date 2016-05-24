@@ -1,5 +1,6 @@
 class Spinach::Features::AdminGroups < Spinach::FeatureSteps
   include SharedAuthentication
+  include SharedGroup
   include SharedPaths
   include SharedUser
   include SharedActiveTab
@@ -44,9 +45,24 @@ class Spinach::Features::AdminGroups < Spinach::FeatureSteps
     click_button "Add users to group"
   end
 
+  When 'I select user "johndoe@gitlab.com" from user list as "Reporter"' do
+    select2('johndoe@gitlab.com', from: "#user_ids", multiple: true)
+    page.within "#new_project_member" do
+      select "Reporter", from: "access_level"
+    end
+    click_button "Add users to group"
+  end
+
   step 'I should see "John Doe" in team list in every project as "Reporter"' do
     page.within ".group-users-list" do
       expect(page).to have_content "John Doe"
+      expect(page).to have_content "Reporter"
+    end
+  end
+
+  step 'I should see "johndoe@gitlab.com" in team list in every project as "Reporter"' do
+    page.within ".group-users-list" do
+      expect(page).to have_content "johndoe@gitlab.com (invited)"
       expect(page).to have_content "Reporter"
     end
   end
@@ -57,8 +73,23 @@ class Spinach::Features::AdminGroups < Spinach::FeatureSteps
     end
   end
 
+  step 'group has shared projects' do
+    share_link = shared_project.project_group_links.new(group_access: Gitlab::Access::MASTER)
+    share_link.group_id = current_group.id
+    share_link.save!
+  end
+
+  step 'I visit group page' do
+    visit admin_group_path(current_group)
+  end
+
+  step 'I should see project shared with group' do
+    expect(page).to have_content(shared_project.name_with_namespace)
+    expect(page).to have_content "Projects shared with"
+  end
+
   step 'we have user "John Doe" in group' do
-    current_group.add_user(user_john, Gitlab::Access::REPORTER)
+    current_group.add_reporter(user_john)
   end
 
   step 'I remove user "John Doe" from group' do
@@ -73,10 +104,42 @@ class Spinach::Features::AdminGroups < Spinach::FeatureSteps
     end
   end
 
+  step 'I select current user as "Developer"' do
+    page.within ".users-group-form" do
+      select2(current_user.id, from: "#user_ids", multiple: true)
+      select "Developer", from: "access_level"
+    end
+
+    click_button "Add users to group"
+  end
+
+  step 'I should see current user as "Developer"' do
+    page.within '.content-list' do
+      expect(page).to have_content(current_user.name)
+      expect(page).to have_content('Developer')
+    end
+  end
+
+  step 'I click on the "Remove User From Group" button for current user' do
+    find(:css, 'li', text: current_user.name).find(:css, 'a.btn-remove').click
+    # poltergeist always confirms popups.
+  end
+
+  step 'I should not see current user as "Developer"' do
+    page.within '.content-list' do
+      expect(page).not_to have_content(current_user.name)
+      expect(page).not_to have_content('Developer')
+    end
+  end
+
   protected
 
   def current_group
     @group ||= Group.first
+  end
+
+  def shared_project
+    @shared_project ||= create(:empty_project)
   end
 
   def user_john

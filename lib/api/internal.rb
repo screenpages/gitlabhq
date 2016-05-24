@@ -14,10 +14,20 @@ module API
       #   ref - branch name
       #   forced_push - forced_push
       #
+
+      helpers do
+        def wiki?
+          @wiki ||= params[:project].end_with?('.wiki') &&
+            !Project.find_with_namespace(params[:project])
+        end
+      end
+
       post "/allowed" do
+        Gitlab::Metrics.action = 'Grape#/internal/allowed'
+
         status 200
 
-        actor = 
+        actor =
           if params[:key_id]
             Key.find_by(id: params[:key_id])
           elsif params[:user_id]
@@ -25,18 +35,17 @@ module API
           end
 
         project_path = params[:project]
-        
+
         # Check for *.wiki repositories.
         # Strip out the .wiki from the pathname before finding the
         # project. This applies the correct project permissions to
         # the wiki repository as well.
-        wiki = project_path.end_with?('.wiki')
-        project_path.chomp!('.wiki') if wiki
+        project_path.chomp!('.wiki') if wiki?
 
         project = Project.find_with_namespace(project_path)
 
         access =
-          if wiki
+          if wiki?
             Gitlab::GitAccessWiki.new(actor, project)
           else
             Gitlab::GitAccess.new(actor, project)

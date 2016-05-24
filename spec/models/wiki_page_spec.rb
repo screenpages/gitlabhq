@@ -1,6 +1,6 @@
 require "spec_helper"
 
-describe WikiPage do
+describe WikiPage, models: true do
   let(:project) { create(:empty_project) }
   let(:user) { project.owner }
   let(:wiki) { ProjectWiki.new(project, user) }
@@ -189,6 +189,38 @@ describe WikiPage do
     end
   end
 
+  describe '#historical?' do
+    before do
+      create_page('Update', 'content')
+      @page = wiki.find_page('Update')
+      3.times { |i| @page.update("content #{i}") }
+    end
+
+    after do
+      destroy_page('Update')
+    end
+
+    it 'returns true when requesting an old version' do
+      old_version = @page.versions.last.to_s
+      old_page = wiki.find_page('Update', old_version)
+
+      expect(old_page.historical?).to eq true
+    end
+
+    it 'returns false when requesting latest version' do
+      latest_version = @page.versions.first.to_s
+      latest_page = wiki.find_page('Update', latest_version)
+
+      expect(latest_page.historical?).to eq false
+    end
+
+    it 'returns false when version is nil' do
+      latest_page = wiki.find_page('Update', nil)
+
+      expect(latest_page.historical?).to eq false
+    end
+  end
+
   private
 
   def remove_temp_repo(path)
@@ -196,7 +228,7 @@ describe WikiPage do
   end
 
   def commit_details
-    commit = { name: user.name, email: user.email, message: "test commit" }
+    { name: user.name, email: user.email, message: "test commit" }
   end
 
   def create_page(name, content)

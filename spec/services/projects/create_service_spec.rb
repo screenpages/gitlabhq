@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe Projects::CreateService do
+describe Projects::CreateService, services: true do
   describe :create_by_user do
     before do
       @user = create :user
@@ -17,6 +17,14 @@ describe Projects::CreateService do
       expect(project.services).not_to be_empty
     end
 
+    it 'creates labels on Project creation if there are templates' do
+      Label.create(title: "bug", template: true)
+      project = create_project(@user, @opts)
+      project.reload
+
+      expect(project.labels).not_to be_empty
+    end
+
     context 'user namespace' do
       before do
         @project = create_project(@user, @opts)
@@ -24,6 +32,7 @@ describe Projects::CreateService do
 
       it { expect(@project).to be_valid }
       it { expect(@project.owner).to eq(@user) }
+      it { expect(@project.team.masters).to include(@user) }
       it { expect(@project.namespace).to eq(@user.namespace) }
     end
 
@@ -41,6 +50,13 @@ describe Projects::CreateService do
       it { expect(@project.namespace).to eq(@group) }
     end
 
+    context 'error handling' do
+      it 'handles invalid options' do
+        @opts.merge!({ default_branch: 'master' } )
+        expect(create_project(@user, @opts)).to eq(nil)
+      end
+    end
+
     context 'wiki_enabled creates repository directory' do
       context 'wiki_enabled true creates wiki repository directory' do
         before do
@@ -48,7 +64,7 @@ describe Projects::CreateService do
           @path = ProjectWiki.new(@project, @user).send(:path_to_repo)
         end
 
-        it { expect(File.exists?(@path)).to be_truthy }
+        it { expect(File.exist?(@path)).to be_truthy }
       end
 
       context 'wiki_enabled false does not create wiki repository directory' do
@@ -58,7 +74,29 @@ describe Projects::CreateService do
           @path = ProjectWiki.new(@project, @user).send(:path_to_repo)
         end
 
-        it { expect(File.exists?(@path)).to be_falsey }
+        it { expect(File.exist?(@path)).to be_falsey }
+      end
+    end
+
+    context 'builds_enabled global setting' do
+      let(:project) { create_project(@user, @opts) }
+
+      subject { project.builds_enabled? }
+
+      context 'global builds_enabled false does not enable CI by default' do
+        before do
+          @opts.merge!(builds_enabled: false)
+        end
+
+        it { is_expected.to be_falsey }
+      end
+
+      context 'global builds_enabled true does enable CI by default' do
+        before do
+          @opts.merge!(builds_enabled: true)
+        end
+
+        it { is_expected.to be_truthy }
       end
     end
 
@@ -86,6 +124,17 @@ describe Projects::CreateService do
 
         expect(project.errors.any?).to be(false)
         expect(project.saved?).to be(true)
+      end
+    end
+
+    context 'repository creation' do
+      it 'should synchronously create the repository' do
+        expect_any_instance_of(Project).to receive(:create_repository)
+
+        project = create_project(@user, @opts)
+        expect(project).to be_valid
+        expect(project.owner).to eq(@user)
+        expect(project.namespace).to eq(@user.namespace)
       end
     end
   end

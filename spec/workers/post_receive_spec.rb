@@ -4,18 +4,69 @@ describe PostReceive do
   let(:changes) { "123456 789012 refs/heads/tést\n654321 210987 refs/tags/tag" }
   let(:wrongly_encoded_changes) { changes.encode("ISO-8859-1").force_encoding("UTF-8") }
   let(:base64_changes) { Base64.encode64(wrongly_encoded_changes) }
-  
+  let(:project) { create(:project) }
+  let(:key) { create(:key, user: project.owner) }
+  let(:key_id) { key.shell_id }
+
   context "as a resque worker" do
     it "reponds to #perform" do
       expect(PostReceive.new).to respond_to(:perform)
     end
   end
 
-  context "web hook" do
-    let(:project) { create(:project) }
-    let(:key) { create(:key, user: project.owner) }
-    let(:key_id) { key.shell_id }
+  describe "#process_project_changes" do
+    before do
+      allow_any_instance_of(Gitlab::GitPostReceive).to receive(:identify).and_return(project.owner)
+    end
 
+    context "branches" do
+      let(:changes) { "123456 789012 refs/heads/tést" }
+
+      it "should call GitTagPushService" do
+        expect_any_instance_of(GitPushService).to receive(:execute).and_return(true)
+        expect_any_instance_of(GitTagPushService).not_to receive(:execute)
+        PostReceive.new.perform(pwd(project), key_id, base64_changes)
+      end
+    end
+
+    context "tags" do
+      let(:changes) { "123456 789012 refs/tags/tag" }
+
+      it "should call GitTagPushService" do
+        expect_any_instance_of(GitPushService).not_to receive(:execute)
+        expect_any_instance_of(GitTagPushService).to receive(:execute).and_return(true)
+        PostReceive.new.perform(pwd(project), key_id, base64_changes)
+      end
+    end
+
+    context "merge-requests" do
+      let(:changes) { "123456 789012 refs/merge-requests/123" }
+
+      it "should not call any of the services" do
+        expect_any_instance_of(GitPushService).not_to receive(:execute)
+        expect_any_instance_of(GitTagPushService).not_to receive(:execute)
+        PostReceive.new.perform(pwd(project), key_id, base64_changes)
+      end
+    end
+
+    context "gitlab-ci.yml" do
+      subject { PostReceive.new.perform(pwd(project), key_id, base64_changes) }
+
+      context "creates a Ci::Commit for every change" do
+        before { stub_ci_commit_to_return_yaml_file }
+
+        it { expect{ subject }.to change{ Ci::Commit.count }.by(2) }
+      end
+
+      context "does not create a Ci::Commit" do
+        before { stub_ci_commit_yaml_file(nil) }
+
+        it { expect{ subject }.to_not change{ Ci::Commit.count } }
+      end
+    end
+  end
+
+  context "webhook" do
     it "fetches the correct project" do
       expect(Project).to receive(:find_with_namespace).with(project.path_with_namespace).and_return(project)
       PostReceive.new.perform(pwd(project), key_id, base64_changes)

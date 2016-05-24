@@ -21,7 +21,7 @@ class Projects::ProtectedBranchesController < Projects::ApplicationController
 
     if protected_branch &&
        protected_branch.update_attributes(
-        developers_can_push: params[:developers_can_push]
+         developers_can_push: params[:developers_can_push]
        )
 
       respond_to do |format|
@@ -39,7 +39,7 @@ class Projects::ProtectedBranchesController < Projects::ApplicationController
 
     respond_to do |format|
       format.html { redirect_to namespace_project_protected_branches_path }
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 

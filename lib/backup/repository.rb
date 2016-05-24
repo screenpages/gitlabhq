@@ -35,7 +35,7 @@ module Backup
           if wiki.repository.empty?
             $progress.puts " [SKIPPED]".cyan
           else
-            cmd = %W(git --git-dir=#{path_to_repo(wiki)} bundle create #{path_to_bundle(wiki)} --all)
+            cmd = %W(#{Gitlab.config.git.bin_path} --git-dir=#{path_to_repo(wiki)} bundle create #{path_to_bundle(wiki)} --all)
             output, status = Gitlab::Popen.popen(cmd)
             if status.zero?
               $progress.puts " [DONE]".green
@@ -67,7 +67,7 @@ module Backup
           FileUtils.mkdir_p(path_to_repo(project))
           cmd = %W(tar -xf #{path_to_bundle(project)} -C #{path_to_repo(project)})
         else
-          cmd = %W(git init --bare #{path_to_repo(project)})
+          cmd = %W(#{Gitlab.config.git.bin_path} init --bare #{path_to_repo(project)})
         end
 
         if system(*cmd, silent)
@@ -87,7 +87,7 @@ module Backup
           # that was initialized with ProjectWiki.new() and then
           # try to restore with 'git clone --bare'.
           FileUtils.rm_rf(path_to_repo(wiki))
-          cmd = %W(git clone --bare #{path_to_bundle(wiki)} #{path_to_repo(wiki)})
+          cmd = %W(#{Gitlab.config.git.bin_path} clone --bare #{path_to_bundle(wiki)} #{path_to_repo(wiki)})
 
           if system(*cmd, silent)
             $progress.puts " [DONE]".green
@@ -130,7 +130,10 @@ module Backup
 
     def prepare
       FileUtils.rm_rf(backup_repos_path)
-      FileUtils.mkdir_p(backup_repos_path)
+      # Ensure the parent dir of backup_repos_path exists
+      FileUtils.mkdir_p(Gitlab.config.backup.path)
+      # Fail if somebody raced to create backup_repos_path before us
+      FileUtils.mkdir(backup_repos_path, mode: 0700)
     end
 
     def silent

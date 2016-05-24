@@ -2,63 +2,41 @@ require "spec_helper"
 
 describe Projects::RepositoriesController do
   let(:project) { create(:project) }
-  let(:user)    { create(:user) }
 
   describe "GET archive" do
-    before do
-      sign_in(user)
-      project.team << [user, :developer]
+    context 'as a guest' do
+      it 'responds with redirect in correct format' do
+        get :archive, namespace_id: project.namespace.path, project_id: project.path, format: "zip"
 
-      allow(ArchiveRepositoryService).to receive(:new).and_return(service)
+        expect(response.content_type).to start_with 'text/html'
+        expect(response).to be_redirect
+      end
     end
 
-    let(:service) { ArchiveRepositoryService.new(project, "master", "zip") }
-
-    it "executes ArchiveRepositoryService" do
-      expect(ArchiveRepositoryService).to receive(:new).with(project, "master", "zip")
-      expect(service).to receive(:execute)
-
-      get :archive, namespace_id: project.namespace.path, project_id: project.path, ref: "master", format: "zip"
-    end
-
-    context "when the service raises an error" do
+    context 'as a user' do
+      let(:user) { create(:user) }
 
       before do
-        allow(service).to receive(:execute).and_raise("Archive failed")
+        project.team << [user, :developer]
+        sign_in(user)
       end
+      it "uses Gitlab::Workhorse" do
+        expect(Gitlab::Workhorse).to receive(:send_git_archive).with(project, "master", "zip")
 
-      it "renders Not Found" do
         get :archive, namespace_id: project.namespace.path, project_id: project.path, ref: "master", format: "zip"
-
-        expect(response.status).to eq(404)
-      end
-    end
-
-    context "when the service doesn't return a path" do
-
-      before do
-        allow(service).to receive(:execute).and_return(nil)
       end
 
-      it "reloads the page" do
-        get :archive, namespace_id: project.namespace.path, project_id: project.path, ref: "master", format: "zip"
+      context "when the service raises an error" do
 
-        expect(response).to redirect_to(archive_namespace_project_repository_path(project.namespace, project, ref: "master", format: "zip"))
-      end
-    end
+        before do
+          allow(Gitlab::Workhorse).to receive(:send_git_archive).and_raise("Archive failed")
+        end
 
-    context "when the service returns a path" do
+        it "renders Not Found" do
+          get :archive, namespace_id: project.namespace.path, project_id: project.path, ref: "master", format: "zip"
 
-      let(:path) { Rails.root.join("spec/fixtures/dk.png").to_s }
-
-      before do
-        allow(service).to receive(:execute).and_return(path)
-      end
-
-      it "sends the file" do
-        get :archive, namespace_id: project.namespace.path, project_id: project.path, ref: "master", format: "zip"
-
-        expect(response.body).to eq(File.binread(path))
+          expect(response.status).to eq(404)
+        end
       end
     end
   end

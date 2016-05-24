@@ -3,16 +3,26 @@ module API
   class Users < Grape::API
     before { authenticate! }
 
-    resource :users do
+    resource :users, requirements: { uid: /[0-9]*/, id: /[0-9]*/ } do
       # Get a users list
       #
       # Example Request:
       #  GET /users
+      #  GET /users?search=Admin
+      #  GET /users?username=root
       get do
-        @users = User.all
-        @users = @users.active if params[:active].present?
-        @users = @users.search(params[:search]) if params[:search].present?
-        @users = paginate @users
+        unless can?(current_user, :read_users_list, nil)
+          render_api_error!("Not authorized.", 403)
+        end
+
+        if params[:username].present?
+          @users = User.where(username: params[:username])
+        else
+          @users = User.all
+          @users = @users.active if params[:active].present?
+          @users = @users.search(params[:search]) if params[:search].present?
+          @users = paginate @users
+        end
 
         if current_user.is_admin?
           present @users, with: Entities::UserFull
@@ -30,10 +40,12 @@ module API
       get ":id" do
         @user = User.find(params[:id])
 
-        if current_user.is_admin?
+        if current_user && current_user.is_admin?
           present @user, with: Entities::UserFull
+        elsif can?(current_user, :read_user, @user)
+          present @user, with: Entities::User
         else
-          present @user, with: Entities::UserBasic
+          render_api_error!("User not found.", 404)
         end
       end
 
@@ -52,22 +64,24 @@ module API
       #   extern_uid                        - External authentication provider UID
       #   provider                          - External provider
       #   bio                               - Bio
+      #   location                          - Location of the user
       #   admin                             - User is admin - true or false (default)
       #   can_create_group                  - User can create groups - true or false
       #   confirm                           - Require user confirmation - true (default) or false
+      #   external                          - Flags the user as external - true or false(default)
       # Example Request:
       #   POST /users
       post do
         authenticated_as_admin!
         required_attributes! [:email, :password, :name, :username]
-        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :projects_limit, :username, :bio, :can_create_group, :admin, :confirm]
+        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :projects_limit, :username, :bio, :location, :can_create_group, :admin, :confirm, :external]
         admin = attrs.delete(:admin)
         confirm = !(attrs.delete(:confirm) =~ (/(false|f|no|0)$/i))
         user = User.build_user(attrs)
         user.admin = admin unless admin.nil?
         user.skip_confirmation! unless confirm
-
         identity_attrs = attributes_for_keys [:provider, :extern_uid]
+
         if identity_attrs.any?
           user.identities.build(identity_attrs)
         end
@@ -99,14 +113,16 @@ module API
       #   website_url                       - Website url
       #   projects_limit                    - Limit projects each user can create
       #   bio                               - Bio
+      #   location                          - Location of the user
       #   admin                             - User is admin - true or false (default)
       #   can_create_group                  - User can create groups - true or false
+      #   external                          - Flags the user as external - true or false(default)
       # Example Request:
       #   PUT /users/:id
       put ":id" do
         authenticated_as_admin!
 
-        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :website_url, :projects_limit, :username, :bio, :can_create_group, :admin]
+        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :website_url, :projects_limit, :username, :bio, :location, :can_create_group, :admin, :external]
         user = User.find(params[:id])
         not_found!('User') unless user
 
@@ -121,6 +137,17 @@ module API
             User.where(username: attrs[:username]).
                 where.not(id: user.id).count > 0
 
+        identity_attrs = attributes_for_keys [:provider, :extern_uid]
+        if identity_attrs.any?
+          identity = user.identities.find_by(provider: identity_attrs[:provider])
+          if identity
+            identity.update_attributes(identity_attrs)
+          else
+            identity = user.identities.build(identity_attrs)
+            identity.save
+          end
+        end
+
         if user.update_attributes(attrs)
           present user, with: Entities::UserFull
         else
@@ -131,11 +158,11 @@ module API
       # Add ssh key to a specified user. Only available to admin users.
       #
       # Parameters:
-      # id (required) - The ID of a user
-      # key (required) - New SSH Key
-      # title (required) - New SSH Key's title
+      #   id (required) - The ID of a user
+      #   key (required) - New SSH Key
+      #   title (required) - New SSH Key's title
       # Example Request:
-      # POST /users/:id/keys
+      #   POST /users/:id/keys
       post ":id/keys" do
         authenticated_as_admin!
         required_attributes! [:title, :key]
@@ -153,9 +180,9 @@ module API
       # Get ssh keys of a specified user. Only available to admin users.
       #
       # Parameters:
-      # uid (required) - The ID of a user
+      #   uid (required) - The ID of a user
       # Example Request:
-      # GET /users/:uid/keys
+      #   GET /users/:uid/keys
       get ':uid/keys' do
         authenticated_as_admin!
         user = User.find_by(id: params[:uid])
@@ -185,6 +212,65 @@ module API
         end
       end
 
+      # Add email to a specified user. Only available to admin users.
+      #
+      # Parameters:
+      #   id (required) - The ID of a user
+      #   email (required) - Email address
+      # Example Request:
+      #   POST /users/:id/emails
+      post ":id/emails" do
+        authenticated_as_admin!
+        required_attributes! [:email]
+
+        user = User.find(params[:id])
+        attrs = attributes_for_keys [:email]
+        email = user.emails.new attrs
+        if email.save
+          NotificationService.new.new_email(email)
+          present email, with: Entities::Email
+        else
+          render_validation_error!(email)
+        end
+      end
+
+      # Get emails of a specified user. Only available to admin users.
+      #
+      # Parameters:
+      #   uid (required) - The ID of a user
+      # Example Request:
+      #   GET /users/:uid/emails
+      get ':uid/emails' do
+        authenticated_as_admin!
+        user = User.find_by(id: params[:uid])
+        not_found!('User') unless user
+
+        present user.emails, with: Entities::Email
+      end
+
+      # Delete existing email of a specified user. Only available to admin
+      # users.
+      #
+      # Parameters:
+      #   uid (required) - The ID of a user
+      #   id (required) - Email ID
+      # Example Request:
+      #   DELETE /users/:uid/emails/:id
+      delete ':uid/emails/:id' do
+        authenticated_as_admin!
+        user = User.find_by(id: params[:uid])
+        not_found!('User') unless user
+
+        begin
+          email = user.emails.find params[:id]
+          email.destroy
+
+          user.update_secondary_emails!
+        rescue ActiveRecord::RecordNotFound
+          not_found!('Email')
+        end
+      end
+
       # Delete user. Available only for admin
       #
       # Example Request:
@@ -208,10 +294,12 @@ module API
         authenticated_as_admin!
         user = User.find_by(id: params[:id])
 
-        if user
+        if !user
+          not_found!('User')
+        elsif !user.ldap_blocked?
           user.block
         else
-          not_found!('User')
+          forbidden!('LDAP blocked users cannot be modified by the API')
         end
       end
 
@@ -223,10 +311,12 @@ module API
         authenticated_as_admin!
         user = User.find_by(id: params[:id])
 
-        if user
-          user.activate
-        else
+        if !user
           not_found!('User')
+        elsif user.ldap_blocked?
+          forbidden!('LDAP blocked users cannot be unblocked by the API')
+        else
+          user.activate
         end
       end
     end
@@ -286,6 +376,58 @@ module API
         begin
           key = current_user.keys.find params[:id]
           key.destroy
+        rescue
+        end
+      end
+
+      # Get currently authenticated user's emails
+      #
+      # Example Request:
+      #   GET /user/emails
+      get "emails" do
+        present current_user.emails, with: Entities::Email
+      end
+
+      # Get single email owned by currently authenticated user
+      #
+      # Example Request:
+      #   GET /user/emails/:id
+      get "emails/:id" do
+        email = current_user.emails.find params[:id]
+        present email, with: Entities::Email
+      end
+
+      # Add new email to currently authenticated user
+      #
+      # Parameters:
+      #   email (required) - Email address
+      # Example Request:
+      #   POST /user/emails
+      post "emails" do
+        required_attributes! [:email]
+
+        attrs = attributes_for_keys [:email]
+        email = current_user.emails.new attrs
+        if email.save
+          NotificationService.new.new_email(email)
+          present email, with: Entities::Email
+        else
+          render_validation_error!(email)
+        end
+      end
+
+      # Delete existing email of currently authenticated user
+      #
+      # Parameters:
+      #   id (required) - EMail ID
+      # Example Request:
+      #   DELETE /user/emails/:id
+      delete "emails/:id" do
+        begin
+          email = current_user.emails.find params[:id]
+          email.destroy
+
+          current_user.update_secondary_emails!
         rescue
         end
       end

@@ -22,21 +22,23 @@ require 'spec_helper'
 require 'socket'
 require 'json'
 
-describe IrkerService do
+describe IrkerService, models: true do
   describe 'Associations' do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
   end
 
   describe 'Validations' do
-    before do
-      subject.active = true
-      subject.properties['recipients'] = _recipients
+    context 'when service is active' do
+      before { subject.active = true }
+
+      it { is_expected.to validate_presence_of(:recipients) }
     end
 
-    context 'active' do
-      let(:_recipients) { nil }
-      it { should validate_presence_of :recipients }
+    context 'when service is inactive' do
+      before { subject.active = false }
+
+      it { is_expected.not_to validate_presence_of(:recipients) }
     end
   end
 

@@ -20,10 +20,24 @@
 
 require 'spec_helper'
 
-describe HipchatService do
+describe HipchatService, models: true do
   describe "Associations" do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
+  end
+
+  describe 'Validations' do
+    context 'when service is active' do
+      before { subject.active = true }
+
+      it { is_expected.to validate_presence_of(:token) }
+    end
+
+    context 'when service is inactive' do
+      before { subject.active = false }
+
+      it { is_expected.not_to validate_presence_of(:token) }
+    end
   end
 
   describe "Execute" do
@@ -47,25 +61,31 @@ describe HipchatService do
       WebMock.stub_request(:post, api_url)
     end
 
+    it 'should test and return errors' do
+      allow(hipchat).to receive(:execute).and_raise(StandardError, 'no such room')
+      result = hipchat.test(push_sample_data)
+
+      expect(result[:success]).to be_falsey
+      expect(result[:result].to_s).to eq('no such room')
+    end
+
     it 'should use v1 if version is provided' do
       allow(hipchat).to receive(:api_version).and_return('v1')
-      expect(HipChat::Client).to receive(:new).
-                                     with(token,
-                                          api_version: 'v1',
-                                          server_url: server_url).
-                                     and_return(
-                                         double(:hipchat_service).as_null_object)
+      expect(HipChat::Client).to receive(:new).with(
+        token,
+        api_version: 'v1',
+        server_url: server_url
+      ).and_return(double(:hipchat_service).as_null_object)
       hipchat.execute(push_sample_data)
     end
 
     it 'should use v2 as the version when nothing is provided' do
       allow(hipchat).to receive(:api_version).and_return('')
-      expect(HipChat::Client).to receive(:new).
-                                     with(token,
-                                          api_version: 'v2',
-                                          server_url: server_url).
-                                     and_return(
-                                         double(:hipchat_service).as_null_object)
+      expect(HipChat::Client).to receive(:new).with(
+        token,
+        api_version: 'v2',
+        server_url: server_url
+      ).and_return(double(:hipchat_service).as_null_object)
       hipchat.execute(push_sample_data)
     end
 
@@ -79,7 +99,7 @@ describe HipchatService do
       it "should create a push message" do
         message = hipchat.send(:create_push_message, push_sample_data)
 
-        obj_attr = push_sample_data[:object_attributes]
+        push_sample_data[:object_attributes]
         branch = push_sample_data[:ref].gsub('refs/heads/', '')
         expect(message).to include("#{user.name} pushed to branch " \
             "<a href=\"#{project.web_url}/commits/#{branch}\">#{branch}</a> of " \
@@ -99,7 +119,7 @@ describe HipchatService do
       it "should create a tag push message" do
         message = hipchat.send(:create_push_message, push_sample_data)
 
-        obj_attr = push_sample_data[:object_attributes]
+        push_sample_data[:object_attributes]
         expect(message).to eq("#{user.name} pushed new tag " \
             "<a href=\"#{project.web_url}/commits/test\">test</a> to " \
             "<a href=\"#{project.web_url}\">#{project_name}</a>\n")
@@ -146,7 +166,7 @@ describe HipchatService do
 
         obj_attr = merge_sample_data[:object_attributes]
         expect(message).to eq("#{user.name} opened " \
-            "<a href=\"#{obj_attr[:url]}\">merge request ##{obj_attr["iid"]}</a> in " \
+            "<a href=\"#{obj_attr[:url]}\">merge request !#{obj_attr["iid"]}</a> in " \
             "<a href=\"#{project.web_url}\">#{project_name}</a>: " \
             "<b>Awesome merge request</b>" \
             "<pre>please fix</pre>")
@@ -196,7 +216,7 @@ describe HipchatService do
         title = data[:merge_request]['title']
 
         expect(message).to eq("#{user.name} commented on " \
-            "<a href=\"#{obj_attr[:url]}\">merge request ##{merge_id}</a> in " \
+            "<a href=\"#{obj_attr[:url]}\">merge request !#{merge_id}</a> in " \
             "<a href=\"#{project.web_url}\">#{project_name}</a>: " \
             "<b>#{title}</b>" \
             "<pre>merge request note</pre>")
@@ -236,6 +256,55 @@ describe HipchatService do
             "<a href=\"#{project.web_url}\">#{project_name}</a>: " \
             "<b>#{title}</b>" \
             "<pre>snippet note</pre>")
+      end
+    end
+
+    context 'build events' do
+      let(:build) { create(:ci_build) }
+      let(:data) { Gitlab::BuildDataBuilder.build(build) }
+
+      context 'for failed' do
+        before { build.drop }
+
+        it "should call Hipchat API" do
+          hipchat.execute(data)
+
+          expect(WebMock).to have_requested(:post, api_url).once
+        end
+
+        it "should create a build message" do
+          message = hipchat.send(:create_build_message, data)
+
+          project_url = project.web_url
+          project_name = project.name_with_namespace.gsub(/\s/, '')
+          sha = data[:sha]
+          ref = data[:ref]
+          ref_type = data[:tag] ? 'tag' : 'branch'
+          duration = data[:commit][:duration]
+
+          expect(message).to eq("<a href=\"#{project_url}\">#{project_name}</a>: " \
+            "Commit <a href=\"#{project_url}/commit/#{sha}/builds\">#{Commit.truncate_sha(sha)}</a> " \
+            "of <a href=\"#{project_url}/commits/#{ref}\">#{ref}</a> #{ref_type} " \
+            "by #{data[:commit][:author_name]} failed in #{duration} second(s)")
+        end
+      end
+
+      context 'for succeeded' do
+        before do
+          build.success
+        end
+
+        it "should call Hipchat API" do
+          hipchat.notify_only_broken_builds = false
+          hipchat.execute(data)
+          expect(WebMock).to have_requested(:post, api_url).once
+        end
+
+        it "should notify only broken" do
+          hipchat.notify_only_broken_builds = true
+          hipchat.execute(data)
+          expect(WebMock).to_not have_requested(:post, api_url).once
+        end
       end
     end
 

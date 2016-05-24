@@ -44,7 +44,9 @@ module API
           :issues_events,
           :merge_requests_events,
           :tag_push_events,
-          :note_events
+          :note_events,
+          :build_events,
+          :enable_ssl_verification
         ]
         @hook = user_project.hooks.new(attrs)
 
@@ -75,7 +77,9 @@ module API
           :issues_events,
           :merge_requests_events,
           :tag_push_events,
-          :note_events
+          :note_events,
+          :build_events,
+          :enable_ssl_verification
         ]
 
         if @hook.update_attributes attrs
@@ -99,10 +103,10 @@ module API
         required_attributes! [:hook_id]
 
         begin
-          @hook = ProjectHook.find(params[:hook_id])
-          @hook.destroy
+          @hook = user_project.hooks.destroy(params[:hook_id])
         rescue
           # ProjectHook can raise Error if hook_id not found
+          not_found!("Error deleting hook #{params[:hook_id]}")
         end
       end
     end

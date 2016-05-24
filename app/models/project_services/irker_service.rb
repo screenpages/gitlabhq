@@ -1,23 +1,3 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#
-
 require 'uri'
 
 class IrkerService < Service
@@ -72,9 +52,10 @@ class IrkerService < Service
         'irc[s]://irc.network.net[:port]/#channel. Special cases: if '\
         'you want the channel to be a nickname instead, append ",isnick" to ' \
         'the channel name; if the channel is protected by a secret password, ' \
-        ' append "?key=secretpassword" to the URI. Note that if you specify a ' \
-        ' default IRC URI to prepend before each recipient, you can just give ' \
-        ' a channel name.'  },
+        ' append "?key=secretpassword" to the URI (Note that due to a bug, if you ' \
+        ' want to use a password, you have to omit the "#" on the channel). If you ' \
+        ' specify a default IRC URI to prepend before each recipient, you can just ' \
+        ' give a channel name.'  },
       { type: 'checkbox', name: 'colorize_messages' },
     ]
   end

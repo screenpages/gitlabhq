@@ -11,36 +11,45 @@ describe GitlabMarkdownHelper do
   let(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
   let(:snippet)       { create(:project_snippet, project: project) }
 
-  # Helper expects a current_user method.
-  let(:current_user) { user }
-
   before do
+    # Ensure the generated reference links aren't redacted
+    project.team << [user, :master]
+
     # Helper expects a @project instance variable
-    @project = project
+    helper.instance_variable_set(:@project, project)
+
+    # Stub the `current_user` helper
+    allow(helper).to receive(:current_user).and_return(user)
   end
 
-  describe "#gfm" do
-    it "should forward HTML options to links" do
-      expect(gfm("Fixed in #{commit.id}", { project: @project }, class: 'foo')).
-        to have_selector('a.gfm.foo')
-    end
-
+  describe "#markdown" do
     describe "referencing multiple objects" do
       let(:actual) { "#{merge_request.to_reference} -> #{commit.to_reference} -> #{issue.to_reference}" }
 
       it "should link to the merge request" do
         expected = namespace_project_merge_request_path(project.namespace, project, merge_request)
-        expect(gfm(actual)).to match(expected)
+        expect(helper.markdown(actual)).to match(expected)
       end
 
       it "should link to the commit" do
         expected = namespace_project_commit_path(project.namespace, project, commit)
-        expect(gfm(actual)).to match(expected)
+        expect(helper.markdown(actual)).to match(expected)
       end
 
       it "should link to the issue" do
         expected = namespace_project_issue_path(project.namespace, project, issue)
-        expect(gfm(actual)).to match(expected)
+        expect(helper.markdown(actual)).to match(expected)
+      end
+    end
+
+    describe "override default project" do
+      let(:actual) { issue.to_reference }
+      let(:second_project) { create(:project, :public) }
+      let(:second_issue) { create(:issue, project: second_project) }
+
+      it 'should link to the issue' do
+        expected = namespace_project_issue_path(second_project.namespace, second_project, second_issue)
+        expect(markdown(actual, project: second_project)).to match(expected)
       end
     end
   end
@@ -50,7 +59,7 @@ describe GitlabMarkdownHelper do
     let(:issues)      { create_list(:issue, 2, project: project) }
 
     it 'should handle references nested in links with all the text' do
-      actual = link_to_gfm("This should finally fix #{issues[0].to_reference} and #{issues[1].to_reference} for real", commit_path)
+      actual = helper.link_to_gfm("This should finally fix #{issues[0].to_reference} and #{issues[1].to_reference} for real", commit_path)
       doc = Nokogiri::HTML.parse(actual)
 
       # Make sure we didn't create invalid markup
@@ -80,7 +89,7 @@ describe GitlabMarkdownHelper do
     end
 
     it 'should forward HTML options' do
-      actual = link_to_gfm("Fixed in #{commit.id}", commit_path, class: 'foo')
+      actual = helper.link_to_gfm("Fixed in #{commit.id}", commit_path, class: 'foo')
       doc = Nokogiri::HTML.parse(actual)
 
       expect(doc.css('a')).to satisfy do |v|
@@ -91,14 +100,20 @@ describe GitlabMarkdownHelper do
 
     it "escapes HTML passed in as the body" do
       actual = "This is a <h1>test</h1> - see #{issues[0].to_reference}"
-      expect(link_to_gfm(actual, commit_path)).
+      expect(helper.link_to_gfm(actual, commit_path)).
         to match('&lt;h1&gt;test&lt;/h1&gt;')
     end
 
     it 'ignores reference links when they are the entire body' do
       text = issues[0].to_reference
-      act = link_to_gfm(text, '/foo')
+      act = helper.link_to_gfm(text, '/foo')
       expect(act).to eq %Q(<a href="/foo">#{issues[0].to_reference}</a>)
+    end
+
+    it 'should replace commit message with emoji to link' do
+      actual = link_to_gfm(':book:Book', '/foo')
+      expect(actual).
+        to eq %Q(<img class="emoji" title=":book:" alt=":book:" src="http://localhost/assets/1F4D6.png" height="20" width="20" align="absmiddle"><a href="/foo">Book</a>)
     end
   end
 
@@ -106,12 +121,13 @@ describe GitlabMarkdownHelper do
     before do
       @wiki = double('WikiPage')
       allow(@wiki).to receive(:content).and_return('wiki content')
+      helper.instance_variable_set(:@project_wiki, @wiki)
     end
 
-    it "should use GitLab Flavored Markdown for markdown files" do
+    it "should use Wiki pipeline for markdown files" do
       allow(@wiki).to receive(:format).and_return(:markdown)
 
-      expect(helper).to receive(:markdown).with('wiki content')
+      expect(helper).to receive(:markdown).with('wiki content', pipeline: :wiki, project_wiki: @wiki)
 
       helper.render_wiki_content(@wiki)
     end
@@ -134,10 +150,23 @@ describe GitlabMarkdownHelper do
     end
   end
 
-  describe 'random_markdown_tip' do
-    it 'returns a random Markdown tip' do
-      stub_const("#{described_class}::MARKDOWN_TIPS", ['Random tip'])
-      expect(random_markdown_tip).to eq 'Random tip'
+  describe '#first_line_in_markdown' do
+    let(:text) { "@#{user.username}, can you look at this?\nHello world\n"}
+
+    it 'truncates Markdown properly' do
+      actual = first_line_in_markdown(text, 100, project: project)
+
+      doc = Nokogiri::HTML.parse(actual)
+
+      # Make sure we didn't create invalid markup
+      expect(doc.errors).to be_empty
+
+      # Leading user link
+      expect(doc.css('a').length).to eq(1)
+      expect(doc.css('a')[0].attr('href')).to eq user_path(user)
+      expect(doc.css('a')[0].text).to eq "@#{user.username}"
+
+      expect(doc.content).to eq "@#{user.username}, can you look at this?..."
     end
   end
 end

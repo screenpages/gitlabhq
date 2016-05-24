@@ -1,0 +1,228 @@
+/*
+ *  Application Header
+ *
+ */
+header {
+  transition-duration: .3s;
+
+  &.navbar-empty {
+    height: $header-height;
+    background: #fff;
+    border-bottom: 1px solid $btn-gray-hover;
+
+    .center-logo {
+      margin: 8px 0;
+      text-align: center;
+
+      #tanuki-logo, img {
+        width: 36px;
+        height: 36px;
+      }
+    }
+  }
+
+  &.navbar-gitlab {
+    padding: 0 16px;
+    z-index: 100;
+    margin-bottom: 0;
+    height: $header-height;
+    background-color: $background-color;
+    border: none;
+    border-bottom: 1px solid $border-color;
+
+    @media (max-width: $screen-xs-min) {
+      padding: 0 16px;
+    }
+
+    &.with-horizontal-nav {
+      border-bottom: none;
+    }
+
+    .container-fluid {
+      width: 100% !important;
+      filter: none;
+      padding: 0;
+
+      .nav > li > a {
+        color: $gl-icon-color;
+        font-size: 18px;
+        padding: 0;
+        margin: ($header-height - 28) / 2 0;
+        margin-left: 10px;
+        height: 28px;
+        width: 28px;
+        line-height: 28px;
+        text-align: center;
+
+        &:hover, &:focus, &:active {
+          background-color: $background-color;
+        }
+      }
+
+      .navbar-toggle {
+        color: #666;
+        margin: 6px 0;
+        border-radius: 0;
+        position: absolute;
+        right: -10px;
+        padding: 6px 10px;
+
+        &:hover {
+          background-color: $btn-gray-hover;
+        }
+
+        &.active {
+          color: $gl-icon-color;
+        }
+      }
+    }
+
+    &.header-collapsed {
+      padding: 0 16px;
+    }
+
+    .side-nav-toggle {
+      display: none;
+      position: absolute;
+      left: -10px;
+      margin: 6px 0;
+      padding: 6px 10px;
+      border: none;
+      background-color: $background-color;
+
+      &:hover {
+        background-color: $btn-gray-hover;
+      }
+
+      &:focus {
+        outline: none;
+      }
+
+      @media (max-width: $screen-xs-min) {
+        display: block;
+      }
+    }
+  }
+
+  .header-content {
+    position: relative;
+    height: $header-height;
+    padding-right: 40px;
+
+    @media (max-width: $screen-xs-min) {
+      padding-left: 40px;
+    }
+
+    @media (min-width: $screen-sm-min) {
+      padding-right: 0;
+    }
+
+    .dropdown-menu {
+      margin-top: -5px;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 19px;
+      line-height: $header-height;
+      font-weight: normal;
+      color: $gl-text-color;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: top;
+      white-space: nowrap;
+
+      a {
+        color: $gl-text-color;
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+
+      .dropdown-toggle-caret {
+        position: relative;
+        top: -2px;
+        width: 12px;
+        line-height: 12px;
+        margin-left: 5px;
+        font-size: 10px;
+        text-align: center;
+        cursor: pointer;
+      }
+
+      .project-item-select {
+        right: auto;
+        left: 0;
+      }
+    }
+
+    .navbar-collapse {
+      float: right;
+      border-top: none;
+    }
+  }
+
+  .project-item-select-holder {
+    display: inline;
+  }
+
+  .impersonation i {
+    color: $red-normal;
+  }
+}
+
+@mixin collapsed-header {
+  margin-left: $sidebar_collapsed_width;
+}
+
+.header-collapsed {
+  margin-left: $sidebar_collapsed_width;
+
+  @media (min-width: $screen-md-min) {
+    @include collapsed-header;
+  }
+
+  @media (max-width: $screen-xs-min) {
+    margin-left: 0;
+  }
+}
+
+.header-expanded {
+  margin-left: $sidebar_collapsed_width;
+
+  @media (min-width: $screen-md-min) {
+    margin-left: $sidebar_width;
+  }
+
+  @media (max-width: $screen-xs-min) {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: $screen-xs-max) {
+  header .container-fluid {
+    font-size: 18px;
+
+    .navbar-nav {
+      margin: 0;
+      float: none !important;
+
+      .visible-xs, .visable-sm {
+        display: table-cell !important;
+      }
+    }
+
+    .navbar-collapse {
+      padding-left: 5px;
+
+      li {
+        display: table-cell;
+        width: 1%;
+
+        a {
+          margin-left: 8px !important;
+        }
+      }
+    }
+  }
+}

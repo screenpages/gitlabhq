@@ -94,7 +94,7 @@ module ExtractsPath
     @options = params.select {|key, value| allowed_options.include?(key) && !value.blank? }
     @options = HashWithIndifferentAccess.new(@options)
 
-    @id = get_id
+    @id = Addressable::URI.unescape(get_id)
     @ref, @path = extract_ref(@id)
     @repo = @project.repository
     if @options[:extended_sha1].blank?
@@ -110,7 +110,7 @@ module ExtractsPath
                                                       @project, @ref, @path)
 
   rescue RuntimeError, NoMethodError, InvalidPathError
-    not_found!
+    render_404
   end
 
   def tree

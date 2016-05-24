@@ -4,18 +4,18 @@
 # - let(:backref_text) { "the way that +subject+ should refer to itself in backreferences " }
 # - let(:set_mentionable_text) { lambda { |txt| "block that assigns txt to the subject's mentionable_text" } }
 
-def common_mentionable_setup
-  let(:project) { create :project }
+shared_context 'mentionable context' do
+  let(:project) { subject.project }
   let(:author)  { subject.author }
 
   let(:mentioned_issue)  { create(:issue, project: project) }
-  let(:mentioned_mr)     { create(:merge_request, :simple, source_project: project) }
-  let(:mentioned_commit) { project.commit }
+  let!(:mentioned_mr)     { create(:merge_request, :simple, source_project: project) }
+  let(:mentioned_commit) { project.commit("HEAD~1") }
 
   let(:ext_proj)   { create(:project, :public) }
   let(:ext_issue)  { create(:issue, project: ext_proj) }
   let(:ext_mr)     { create(:merge_request, :simple, source_project: ext_proj) }
-  let(:ext_commit) { ext_proj.commit }
+  let(:ext_commit) { ext_proj.commit("HEAD~2") }
 
   # Override to add known commits to the repository stub.
   let(:extra_commits) { [] }
@@ -45,19 +45,20 @@ def common_mentionable_setup
   before do
     # Wire the project's repository to return the mentioned commit, and +nil+
     # for any unrecognized commits.
-    commitmap = {
-      mentioned_commit.id => mentioned_commit
-    }
-    extra_commits.each { |c| commitmap[c.short_id] = c }
-
-    allow(project.repository).to receive(:commit) { |sha| commitmap[sha] }
+    allow_any_instance_of(::Repository).to receive(:commit).and_call_original
+    allow_any_instance_of(::Repository).to receive(:commit).with(mentioned_commit.short_id).and_return(mentioned_commit)
+    extra_commits.each do |commit|
+      allow_any_instance_of(::Repository).to receive(:commit).with(commit.short_id).and_return(commit)
+    end
 
     set_mentionable_text.call(ref_string)
+
+    project.team << [author, :developer]
   end
 end
 
 shared_examples 'a mentionable' do
-  common_mentionable_setup
+  include_context 'mentionable context'
 
   it 'generates a descriptive back-reference' do
     expect(subject.gfm_reference).to eq(backref_text)
@@ -65,7 +66,7 @@ shared_examples 'a mentionable' do
 
   it "extracts references from its reference property" do
     # De-duplicate and omit itself
-    refs = subject.references(project)
+    refs = subject.referenced_mentionables
     expect(refs.size).to eq(6)
     expect(refs).to include(mentioned_issue)
     expect(refs).to include(mentioned_mr)
@@ -84,19 +85,12 @@ shared_examples 'a mentionable' do
         with(referenced, subject.local_reference, author)
     end
 
-    subject.create_cross_references!(project, author)
-  end
-
-  it 'detects existing cross-references' do
-    SystemNoteService.cross_reference(mentioned_issue, subject.local_reference, author)
-
-    expect(subject).to have_mentioned(mentioned_issue)
-    expect(subject).not_to have_mentioned(mentioned_mr)
+    subject.create_cross_references!
   end
 end
 
 shared_examples 'an editable mentionable' do
-  common_mentionable_setup
+  include_context 'mentionable context'
 
   it_behaves_like 'a mentionable'
 
@@ -143,6 +137,6 @@ shared_examples 'an editable mentionable' do
     end
 
     set_mentionable_text.call(new_text)
-    subject.create_new_cross_references!(project, author)
+    subject.create_new_cross_references!(author)
   end
 end

@@ -3,10 +3,9 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   include SharedProject
   include SharedNote
   include SharedPaths
-  include WikiHelper
 
   step 'I click on the Cancel button' do
-    page.within(:css, ".form-actions") do
+    page.within(:css, ".wiki-form .form-actions") do
       click_on "Cancel"
     end
   end
@@ -25,7 +24,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
     expect(page).to have_content "link test"
 
     click_link "link test"
-    expect(page).to have_content "Editing"
+    expect(page).to have_content "Edit Page"
   end
 
   step 'I have an existing Wiki page' do
@@ -69,7 +68,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   end
 
   step 'I click on the "Delete this page" button' do
-    click_on "Delete this page"
+    click_on "Delete"
   end
 
   step 'The page should be deleted' do
@@ -86,7 +85,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   end
 
   step 'I have an existing Wiki page with images linked on page' do
-    wiki.create_page("pictures", "Look at this [image](image.jpg)\n\n ![image](image.jpg)", :markdown, "first commit")
+    wiki.create_page("pictures", "Look at this [image](image.jpg)\n\n ![alt text](image.jpg)", :markdown, "first commit")
     @wiki_page = wiki.find_page("pictures")
   end
 
@@ -121,26 +120,16 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   step 'I should see the new wiki page form' do
     expect(current_path).to match('wikis/image.jpg')
     expect(page).to have_content('New Wiki Page')
-    expect(page).to have_content('Editing - image.jpg')
+    expect(page).to have_content('Edit Page')
   end
 
   step 'I create a New page with paths' do
     click_on 'New Page'
     fill_in 'Page slug', with: 'one/two/three'
-    click_on 'Build'
+    click_on 'Create Page'
     fill_in "wiki_content", with: 'wiki content'
     click_on "Create page"
     expect(current_path).to include 'one/two/three'
-  end
-
-  step 'I create a New page with an invalid name' do
-    click_on 'New Page'
-    fill_in 'Page slug', with: 'invalid name'
-    click_on 'Build'
-  end
-
-  step 'I should see an error message' do
-    expect(page).to have_content "The page slug is invalid"
   end
 
   step 'I should see non-escaped link in the pages list' do
@@ -157,7 +146,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   end
 
   step 'I should see the Editing page' do
-    expect(page).to have_content('Editing')
+    expect(page).to have_content('Edit Page')
   end
 
   step 'I view the page history of a Wiki page that has a path' do
@@ -165,13 +154,23 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
     click_on 'Page History'
   end
 
+  step 'I click on Page History' do
+    click_on 'Page History'
+  end
+
   step 'I should see the page history' do
-    expect(page).to have_content('History for')
+    page.within(:css, ".nav-text") do
+      expect(page).to have_content('History')
+    end
   end
 
   step 'I search for Wiki content' do
-    fill_in "Search in this project", with: "wiki_content"
+    fill_in "Search", with: "wiki_content"
     click_button "Search"
+  end
+
+  step 'I should see a link with a version ID' do
+    find('a[href*="?version_id"]')
   end
 
   def wiki

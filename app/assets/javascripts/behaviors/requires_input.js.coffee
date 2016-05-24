@@ -34,6 +34,19 @@ $.fn.requiresInput = ->
 
   $form.on 'change input', fieldSelector, requireInput
 
-# Triggered on standard document `ready` and on Turbolinks `page:load` events
-$(document).on 'ready page:load', ->
-  $('form.js-requires-input').requiresInput()
+$ ->
+  $form = $('form.js-requires-input')
+  $form.requiresInput()
+
+  # Hide or Show the help block when creating a new project
+  # based on the option selected
+  hideOrShowHelpBlock = (form) ->
+    selected = $('.js-select-namespace option:selected')
+    if selected.length and selected.data('options-parent') is 'groups'
+      return form.find('.help-block').hide()
+    else if selected.length
+      form.find('.help-block').show()
+
+  hideOrShowHelpBlock($form)
+
+  $('.select2.js-select-namespace').change -> hideOrShowHelpBlock($form)

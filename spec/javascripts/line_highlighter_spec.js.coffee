@@ -39,7 +39,7 @@ describe 'LineHighlighter', ->
       expect(spy).toHaveBeenPrevented()
 
     it 'handles garbage input from the hash', ->
-      func = -> new LineHighlighter('#tree-content-holder')
+      func = -> new LineHighlighter('#blob-content-holder')
       expect(func).not.toThrow()
 
   describe '#clickHandler', ->
@@ -47,6 +47,14 @@ describe 'LineHighlighter', ->
       spy = spyOnEvent('a[data-line-number]', 'mousedown')
       clickLine(13)
       expect(spy).toHaveBeenPrevented()
+
+    it 'handles clicking on a child icon element', ->
+      spy = spyOn(@class, 'setHash').and.callThrough()
+
+      $('#L13 i').mousedown().click()
+
+      expect(spy).toHaveBeenCalledWith(13)
+      expect($('#LC13')).toHaveClass(@css)
 
     describe 'without shiftKey', ->
       it 'highlights one line when clicked', ->

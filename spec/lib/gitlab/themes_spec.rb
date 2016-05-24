@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe Gitlab::Themes do
+describe Gitlab::Themes, lib: true do
   describe '.body_classes' do
     it 'returns a space-separated list of class names' do
       css = described_class.body_classes
@@ -43,9 +43,6 @@ describe Gitlab::Themes do
       ids = []
       described_class.each { |theme| ids << theme.id }
       expect(ids).not_to be_empty
-
-      # TODO (rspeicher): RSpec 3.x
-      # expect(described_class.each).to yield_with_arg(described_class::Theme)
     end
   end
 end

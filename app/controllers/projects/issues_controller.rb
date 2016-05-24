@@ -1,9 +1,13 @@
 class Projects::IssuesController < Projects::ApplicationController
+  include ToggleSubscriptionAction
+  include IssuableActions
+
   before_action :module_enabled
-  before_action :issue, only: [:edit, :update, :show, :toggle_subscription]
+  before_action :issue, only: [:edit, :update, :show, :referenced_merge_requests,
+                               :related_branches, :can_create_branch]
 
   # Allow read any issue
-  before_action :authorize_read_issue!
+  before_action :authorize_read_issue!, only: [:show]
 
   # Allow write(create) issue
   before_action :authorize_create_issue!, only: [:new, :create]
@@ -28,14 +32,16 @@ class Projects::IssuesController < Projects::ApplicationController
       end
     end
 
-    @issues = @issues.page(params[:page]).per(PER_PAGE)
+    @issues = @issues.page(params[:page])
+    @labels = @project.labels.where(title: params[:label_name])
 
     respond_to do |format|
       format.html
       format.atom { render layout: false }
       format.json do
         render json: {
-          html: view_to_html_string("projects/issues/_issues")
+          html: view_to_html_string("projects/issues/_issues"),
+          labels: @labels.as_json(methods: :text_color)
         }
       end
     end
@@ -46,7 +52,7 @@ class Projects::IssuesController < Projects::ApplicationController
       assignee_id: ""
     )
 
-    @issue = @project.issues.new(issue_params)
+    @issue = @noteable = @project.issues.new(issue_params)
     respond_with(@issue)
   end
 
@@ -55,12 +61,17 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def show
-    @participants = @issue.participants(current_user, @project)
-    @note = @project.notes.new(noteable: @issue)
-    @notes = @issue.notes.inc_author.fresh
+    @note     = @project.notes.new(noteable: @issue)
+    @notes    = @issue.notes.nonawards.with_associations.fresh
     @noteable = @issue
 
-    respond_with(@issue)
+    respond_to do |format|
+      format.html
+      format.json do
+        render json: @issue.to_json(include: [:milestone, :labels])
+      end
+    end
+
   end
 
   def create
@@ -83,8 +94,15 @@ class Projects::IssuesController < Projects::ApplicationController
   def update
     @issue = Issues::UpdateService.new(project, current_user, issue_params).execute(issue)
 
+    if params[:move_to_project_id].to_i > 0
+      new_project = Project.find(params[:move_to_project_id])
+      return render_404 unless issue.can_move?(current_user, new_project)
+
+      move_service = Issues::MoveService.new(project, current_user)
+      @issue = move_service.execute(@issue, new_project)
+    end
+
     respond_to do |format|
-      format.js
       format.html do
         if @issue.valid?
           redirect_to issue_path(@issue)
@@ -93,23 +111,51 @@ class Projects::IssuesController < Projects::ApplicationController
         end
       end
       format.json do
+        render json: @issue.to_json(include: { milestone: {}, assignee: { methods: :avatar_url }, labels: { methods: :text_color } })
+      end
+    end
+  end
+
+  def referenced_merge_requests
+    @merge_requests = @issue.referenced_merge_requests(current_user)
+    @closed_by_merge_requests = @issue.closed_by_merge_requests(current_user)
+
+    respond_to do |format|
+      format.json do
         render json: {
-          saved: @issue.valid?,
-          assignee_avatar_url: @issue.assignee.try(:avatar_url)
+          html: view_to_html_string('projects/issues/_merge_requests')
         }
+      end
+    end
+  end
+
+  def related_branches
+    @related_branches = @issue.related_branches(current_user)
+
+    respond_to do |format|
+      format.json do
+        render json: {
+          html: view_to_html_string('projects/issues/_related_branches')
+        }
+      end
+    end
+  end
+
+  def can_create_branch
+    can_create = current_user &&
+      can?(current_user, :push_code, @project) &&
+      @issue.can_be_worked_on?(current_user)
+
+    respond_to do |format|
+      format.json do
+        render json: { can_create_branch: can_create }
       end
     end
   end
 
   def bulk_update
     result = Issues::BulkUpdateService.new(project, current_user, bulk_update_params).execute
-    redirect_to :back, notice: "#{result[:count]} issues updated"
-  end
-
-  def toggle_subscription
-    @issue.toggle_subscription(current_user)
-
-    render nothing: true
+    redirect_back_or_default(default: { action: 'index' }, options: { notice: "#{result[:count]} issues updated" })
   end
 
   protected
@@ -121,6 +167,12 @@ class Projects::IssuesController < Projects::ApplicationController
                  redirect_old
                end
   end
+  alias_method :subscribable_resource, :issue
+  alias_method :issuable, :issue
+
+  def authorize_read_issue!
+    return render_404 unless can?(current_user, :read_issue, @issue)
+  end
 
   def authorize_update_issue!
     return render_404 unless can?(current_user, :update_issue, @issue)
@@ -131,7 +183,7 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def module_enabled
-    return render_404 unless @project.issues_enabled
+    return render_404 unless @project.issues_enabled && @project.default_issues_tracker?
   end
 
   # Since iids are implemented only in 6.1
@@ -152,8 +204,8 @@ class Projects::IssuesController < Projects::ApplicationController
 
   def issue_params
     params.require(:issue).permit(
-      :title, :assignee_id, :position, :description,
-      :milestone_id, :state_event, :task_num, label_ids: []
+      :title, :assignee_id, :position, :description, :confidential,
+      :milestone_id, :due_date, :state_event, :task_num, label_ids: []
     )
   end
 

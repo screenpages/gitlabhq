@@ -2,15 +2,10 @@ module Gitlab
   class TaskAbortedByUserError < StandardError; end
 end
 
-unless STDOUT.isatty
-  module Colored
-    extend self
+String.disable_colorization = true unless STDOUT.isatty
 
-    def colorize(string, options={})
-      string
-    end
-  end
-end
+# Prevent StateMachine warnings from outputting during a cron task
+StateMachines::Machine.ignore_method_conflicts = true if ENV['CRON']
 
 namespace :gitlab do
 
@@ -103,7 +98,7 @@ namespace :gitlab do
       gitlab_user = Gitlab.config.gitlab.user
       current_user = run(%W(whoami)).chomp
       unless current_user == gitlab_user
-        puts "#{Colored.color(:black)+Colored.color(:on_yellow)} Warning #{Colored.extra(:clear)}"
+        puts " Warning ".colorize(:black).on_yellow
         puts "  You are running as user #{current_user.magenta}, we hope you know what you are doing."
         puts "  Things may work\/fail for the wrong reasons."
         puts "  For correct results you should run this as user #{gitlab_user.magenta}."
@@ -126,6 +121,14 @@ namespace :gitlab do
       command_success.all?
     else
       false
+    end
+  end
+
+  def all_repos
+    IO.popen(%W(find #{Gitlab.config.gitlab_shell.repos_path} -mindepth 2 -maxdepth 2 -type d -name *.git)) do |find|
+      find.each_line do |path|
+        yield path.chomp
+      end
     end
   end
 end

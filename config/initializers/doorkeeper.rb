@@ -6,13 +6,13 @@ Doorkeeper.configure do
   # This block will be called to check whether the resource owner is authenticated or not.
   resource_owner_authenticator do
     # Put your resource owner authentication logic here.
-    # Example implementation:
+    # Ensure user is redirected to redirect_uri after login
+    session[:user_return_to] = request.fullpath
     current_user || redirect_to(new_user_session_url)
   end
 
   resource_owner_from_credentials do |routes|
-    u = User.find_by(email: params[:username]) || User.find_by(username: params[:username])
-    u if u && u.valid_password?(params[:password])
+    Gitlab::Auth.new.find(params[:username], params[:password])
   end
 
   # If you want to restrict access to the web interface for adding oauth authorized applications, you need to declare the block below.

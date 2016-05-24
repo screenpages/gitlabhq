@@ -5,6 +5,7 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
   include SharedNote
   include SharedPaths
   include SharedMarkdown
+  include SharedUser
 
   step 'I should see "Release 0.4" in issues' do
     expect(page).to have_content "Release 0.4"
@@ -19,15 +20,15 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
   end
 
   step 'I should see that I am subscribed' do
-    expect(find('.subscribe-button span')).to have_content 'Unsubscribe'
+    expect(find('.issuable-subscribe-button span')).to have_content 'Unsubscribe'
   end
 
   step 'I should see that I am unsubscribed' do
-    expect(find('.subscribe-button span')).to have_content 'Subscribe'
+    expect(find('.issuable-subscribe-button span')).to have_content 'Subscribe'
   end
 
   step 'I click link "Closed"' do
-    click_link "Closed"
+    find('.issues-state-filters a', text: "Closed").click
   end
 
   step 'I click button "Unsubscribe"' do
@@ -54,31 +55,35 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
     expect(page).to have_content "Release 0.4"
   end
 
+  step 'I should see issue "Tweet control"' do
+    expect(page).to have_content "Tweet control"
+  end
+
   step 'I click link "New Issue"' do
     click_link "New Issue"
   end
 
   step 'I click "author" dropdown' do
-    first('.ajax-users-select').click
+    page.find('.js-author-search').click
+    sleep 1
   end
 
   step 'I see current user as the first user' do
-    expect(page).to have_selector('.user-result', visible: true, count: 4)
-    users = page.all('.user-name')
-    expect(users[0].text).to eq 'Any'
-    expect(users[1].text).to eq 'Unassigned'
-    expect(users[2].text).to eq current_user.name
+    expect(page).to have_selector('.dropdown-content', visible: true)
+    users = page.all('.dropdown-menu-author .dropdown-content li a')
+    expect(users[0].text).to eq 'Any Author'
+    expect(users[1].text).to eq "#{current_user.name} #{current_user.to_reference}"
   end
 
   step 'I submit new issue "500 error on profile"' do
     fill_in "issue_title", with: "500 error on profile"
-    click_button "Submit new issue"
+    click_button "Submit issue"
   end
 
   step 'I submit new issue "500 error on profile" with label \'bug\'' do
     fill_in "issue_title", with: "500 error on profile"
     select 'bug', from: "Labels"
-    click_button "Submit new issue"
+    click_button "Submit issue"
   end
 
   step 'I click link "500 error on profile"' do
@@ -86,7 +91,7 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
   end
 
   step 'I should see label \'bug\' with issue' do
-    page.within '.issue-show-labels' do
+    page.within '.issuable-show-labels' do
       expect(page).to have_content 'bug'
     end
   end
@@ -171,6 +176,13 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
            author: project.users.first)
   end
 
+  step 'project "Shop" have "Bugfix" open issue' do
+    create(:issue,
+           title: "Bugfix",
+           project: project,
+           author: project.users.first)
+  end
+
   step 'project "Shop" have "Release 0.3" closed issue' do
     create(:closed_issue,
            title: "Release 0.3",
@@ -178,8 +190,58 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
            author: project.users.first)
   end
 
+  step 'issue "Release 0.4" have 2 upvotes and 1 downvote' do
+    issue = Issue.find_by(title: 'Release 0.4')
+    create_list(:upvote_note, 2, project: project, noteable: issue)
+    create(:downvote_note, project: project, noteable: issue)
+  end
+
+  step 'issue "Tweet control" have 1 upvote and 2 downvotes' do
+    issue = Issue.find_by(title: 'Tweet control')
+    create(:upvote_note, project: project, noteable: issue)
+    create_list(:downvote_note, 2, project: project, noteable: issue)
+  end
+
+  step 'The list should be sorted by "Least popular"' do
+    page.within '.issues-list' do
+      page.within 'li.issue:nth-child(1)' do
+        expect(page).to have_content 'Tweet control'
+        expect(page).to have_content '1 2'
+      end
+
+      page.within 'li.issue:nth-child(2)' do
+        expect(page).to have_content 'Release 0.4'
+        expect(page).to have_content '2 1'
+      end
+
+      page.within 'li.issue:nth-child(3)' do
+        expect(page).to have_content 'Bugfix'
+        expect(page).to_not have_content '0 0'
+      end
+    end
+  end
+
+  step 'The list should be sorted by "Most popular"' do
+    page.within '.issues-list' do
+      page.within 'li.issue:nth-child(1)' do
+        expect(page).to have_content 'Release 0.4'
+        expect(page).to have_content '2 1'
+      end
+
+      page.within 'li.issue:nth-child(2)' do
+        expect(page).to have_content 'Tweet control'
+        expect(page).to have_content '1 2'
+      end
+
+      page.within 'li.issue:nth-child(3)' do
+        expect(page).to have_content 'Bugfix'
+        expect(page).to_not have_content '0 0'
+      end
+    end
+  end
+
   step 'empty project "Empty Project"' do
-    create :empty_project, name: 'Empty Project', namespace: @user.namespace
+    create :project_empty_repo, name: 'Empty Project', namespace: @user.namespace
   end
 
   When 'I visit empty project page' do
@@ -207,7 +269,7 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
   step 'I leave a comment with code block' do
     page.within(".js-main-target-form") do
       fill_in "note[note]", with: "```\nCommand [1]: /usr/local/bin/git , see [text](doc/text)\n```"
-      click_button "Add Comment"
+      click_button "Comment"
       sleep 0.05
     end
   end
@@ -223,11 +285,11 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
   end
 
   step 'project \'Shop\' has issue \'Bugfix1\' with description: \'Description for issue1\'' do
-    issue = create(:issue, title: 'Bugfix1', description: 'Description for issue1', project: project)
+    create(:issue, title: 'Bugfix1', description: 'Description for issue1', project: project)
   end
 
   step 'project \'Shop\' has issue \'Feature1\' with description: \'Feature submitted for issue1\'' do
-    issue = create(:issue, title: 'Feature1', description: 'Feature submitted for issue1', project: project)
+    create(:issue, title: 'Feature1', description: 'Feature submitted for issue1', project: project)
   end
 
   step 'I fill in issue search with \'Description for issue1\'' do
@@ -284,7 +346,19 @@ class Spinach::Features::ProjectIssues < Spinach::FeatureSteps
     end
   end
 
+  step 'another user adds a comment with text "Yay!" to issue "Release 0.4"' do
+    issue = Issue.find_by!(title: 'Release 0.4')
+    create(:note_on_issue, noteable: issue,  note: 'Yay!')
+  end
+
+  step 'I should see a new comment with text "Yay!"' do
+    page.within '#notes' do
+      expect(page).to have_content('Yay!')
+    end
+  end
+
   def filter_issue(text)
     fill_in 'issue_search', with: text
   end
+
 end

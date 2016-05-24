@@ -6,13 +6,12 @@ module Projects
 
     def execute
       forked_from_project_id = params.delete(:forked_from_project_id)
+      import_data = params.delete(:import_data)
 
       @project = Project.new(params)
 
-      # Make sure that the user is allowed to use the specified visibility
-      # level
-      unless Gitlab::VisibilityLevel.allowed_for?(current_user,
-                                                  params[:visibility_level])
+      # Make sure that the user is allowed to use the specified visibility level
+      unless Gitlab::VisibilityLevel.allowed_for?(current_user, params[:visibility_level])
         deny_visibility_level(@project)
         return @project
       end
@@ -51,21 +50,19 @@ module Projects
         @project.build_forked_project_link(forked_from_project_id: forked_from_project_id)
       end
 
-      Project.transaction do
-        @project.save
+      save_project_and_import_data(import_data)
 
-        if @project.persisted? && !@project.import?
-          unless @project.create_repository
-            raise 'Failed to create repository'
-          end
-        end
-      end
+      @project.import_start if @project.import?
 
       after_create_actions if @project.persisted?
 
+      @project.add_import_job if @project.import?
+
       @project
-    rescue => ex
-      @project.errors.add(:base, "Can't save project. Please try again later")
+    rescue => e
+      message = "Unable to save project: #{e.message}"
+      Rails.logger.error(message)
+      @project.errors.add(:base, message) if @project
       @project
     end
 
@@ -87,17 +84,23 @@ module Projects
 
       @project.build_missing_services
 
+      @project.create_labels
+
       event_service.create_project(@project, current_user)
       system_hook_service.execute_hooks_for(@project, :create)
 
       unless @project.group
         @project.team << [current_user, :master, current_user]
       end
+    end
 
-      @project.update_column(:last_activity_at, @project.created_at)
+    def save_project_and_import_data(import_data)
+      Project.transaction do
+        @project.create_or_update_import_data(data: import_data[:data], credentials: import_data[:credentials]) if import_data
 
-      if @project.import?
-        @project.import_start
+        if @project.save && !@project.import?
+          raise 'Failed to create repository' unless @project.create_repository
+        end
       end
     end
   end

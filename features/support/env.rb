@@ -14,6 +14,7 @@ require 'sidekiq/testing/inline'
 
 require_relative 'capybara'
 require_relative 'db_cleaner'
+require_relative 'rerun'
 
 %w(select2_helper test_env repo_helpers).each do |f|
   require Rails.root.join('spec', 'support', f)
@@ -27,6 +28,10 @@ Spinach.hooks.before_run do
   include RSpec::Mocks::ExampleMethods
   RSpec::Mocks.setup
   TestEnv.init(mailer: false)
+
+  # skip pre-receive hook check so we can use
+  # web editor and merge
+  TestEnv.disable_pre_receive
 
   include FactoryGirl::Syntax::Methods
 end

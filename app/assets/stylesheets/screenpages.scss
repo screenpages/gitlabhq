@@ -30,7 +30,11 @@ header{
 }
 html body {
     padding-top: 75px;
+	&.login-page{
+		padding-top: 116px;
+	}
 }
+
 
 @media(max-width: $screen-md-max) {
 	header{ 

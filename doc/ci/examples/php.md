@@ -49,7 +49,7 @@ apt-get update -yqq
 apt-get install git -yqq
 
 # Install phpunit, the tool that we will use for testing
-curl -o /usr/local/bin/phpunit https://phar.phpunit.de/phpunit.phar
+curl -Lo /usr/local/bin/phpunit https://phar.phpunit.de/phpunit.phar
 chmod +x /usr/local/bin/phpunit
 
 # Install mysql driver
@@ -263,10 +263,10 @@ terminal execute:
 
 ```bash
 # Check using docker executor
-gitlab-runner exec docker test:app
+gitlab-ci-multi-runner exec docker test:app
 
 # Check using shell executor
-gitlab-runner exec shell test:app
+gitlab-ci-multi-runner exec shell test:app
 ```
 
 ## Example project

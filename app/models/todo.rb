@@ -2,6 +2,14 @@ class Todo < ActiveRecord::Base
   ASSIGNED     = 1
   MENTIONED    = 2
   BUILD_FAILED = 3
+  MARKED       = 4
+
+  ACTION_NAMES = {
+    ASSIGNED => :assigned,
+    MENTIONED => :mentioned,
+    BUILD_FAILED => :build_failed,
+    MARKED => :marked
+  }
 
   belongs_to :author, class_name: "User"
   belongs_to :note
@@ -29,8 +37,14 @@ class Todo < ActiveRecord::Base
     state :done
   end
 
+  after_save :keep_around_commit
+
   def build_failed?
     action == BUILD_FAILED
+  end
+
+  def action_name
+    ACTION_NAMES[action]
   end
 
   def body
@@ -60,5 +74,11 @@ class Todo < ActiveRecord::Base
     else
       target.to_reference
     end
+  end
+
+  private
+
+  def keep_around_commit
+    project.repository.keep_around(self.commit_id)
   end
 end

@@ -8,7 +8,10 @@ class Commit
   include StaticModel
 
   attr_mentionable :safe_message, pipeline: :single_line
-  participant :author, :committer, :notes
+
+  participant :author
+  participant :committer
+  participant :notes_with_associations
 
   attr_accessor :project
 
@@ -194,6 +197,10 @@ class Commit
     project.notes.for_commit_id(self.id)
   end
 
+  def notes_with_associations
+    notes.includes(:author)
+  end
+
   def method_missing(m, *args, &block)
     @raw.send(m, *args, &block)
   end
@@ -207,19 +214,26 @@ class Commit
     @raw.short_id(7)
   end
 
-  def ci_commits
-    @ci_commits ||= project.ci_commits.where(sha: sha)
+  def diff_refs
+    Gitlab::Diff::DiffRefs.new(
+      base_sha: self.parent_id || self.sha,
+      head_sha: self.sha
+    )
+  end
+
+  def pipelines
+    @pipeline ||= project.pipelines.where(sha: sha)
   end
 
   def status
     return @status if defined?(@status)
-    @status ||= ci_commits.status
+    @status ||= pipelines.status
   end
 
   def revert_branch_name
     "revert-#{short_id}"
   end
-  
+
   def cherry_pick_branch_name
     project.repository.next_branch("cherry-pick-#{short_id}", mild: true)
   end
@@ -251,15 +265,43 @@ class Commit
   end
 
   def has_been_reverted?(current_user = nil, noteable = self)
-    Gitlab::ReferenceExtractor.lazily do
-      noteable.notes.system.flat_map do |note|
-        note.all_references(current_user).commits
-      end
-    end.any? { |commit_ref| commit_ref.reverts_commit?(self) }
+    ext = all_references(current_user)
+
+    noteable.notes_with_associations.system.each do |note|
+      note.all_references(current_user, extractor: ext)
+    end
+
+    ext.commits.any? { |commit_ref| commit_ref.reverts_commit?(self) }
   end
 
   def change_type_title
     merged_merge_request ? 'merge request' : 'commit'
+  end
+
+  # Get the URI type of the given path
+  #
+  # Used to build URLs to files in the repository in GFM.
+  #
+  # path - String path to check
+  #
+  # Examples:
+  #
+  #   uri_type('doc/README.md') # => :blob
+  #   uri_type('doc/logo.png')  # => :raw
+  #   uri_type('doc/api')       # => :tree
+  #   uri_type('not/found')     # => :nil
+  #
+  # Returns a symbol
+  def uri_type(path)
+    entry = @raw.tree.path(path)
+    if entry[:type] == :blob
+      blob = Gitlab::Git::Blob.new(name: entry[:name])
+      blob.image? ? :raw : :blob
+    else
+      entry[:type]
+    end
+  rescue Rugged::TreeError
+    nil
   end
 
   private

@@ -20,15 +20,25 @@ class Label < ActiveRecord::Base
   validates :color, color: true, allow_blank: false
   validates :project, presence: true, unless: Proc.new { |service| service.template? }
 
-  # Don't allow '?', '&', and ',' for label titles
+  # Don't allow ',' for label titles
   validates :title,
             presence: true,
-            format: { with: /\A[^&\?,]+\z/ },
+            format: { with: /\A[^,]+\z/ },
             uniqueness: { scope: :project_id }
+
+  before_save :nullify_priority
 
   default_scope { order(title: :asc) }
 
   scope :templates, ->  { where(template: true) }
+
+  def self.prioritized
+    where.not(priority: nil).reorder(:priority, :title)
+  end
+
+  def self.unprioritized
+    where(priority: nil)
+  end
 
   alias_attribute :name, :title
 
@@ -48,8 +58,8 @@ class Label < ActiveRecord::Base
       (?:
         (?<label_id>\d+) | # Integer-based label ID, or
         (?<label_name>
-          [A-Za-z0-9_-]+ | # String-based single-word label title, or
-          "[^&\?,]+"       # String-based multi-word label surrounded in quotes
+          [A-Za-z0-9_\-\?&]+ | # String-based single-word label title, or
+          "[^,]+"              # String-based multi-word label surrounded in quotes
         )
       )
     }x
@@ -104,7 +114,7 @@ class Label < ActiveRecord::Base
   end
 
   def title=(value)
-    write_attribute(:title, Sanitize.clean(value.to_s)) if value.present?
+    write_attribute(:title, sanitize_title(value)) if value.present?
   end
 
   private
@@ -117,5 +127,13 @@ class Label < ActiveRecord::Base
     else
       id
     end
+  end
+
+  def nullify_priority
+    self.priority = nil if priority.blank?
+  end
+
+  def sanitize_title(value)
+    CGI.unescapeHTML(Sanitize.clean(value.to_s))
   end
 end

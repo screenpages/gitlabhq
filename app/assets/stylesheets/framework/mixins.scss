@@ -2,18 +2,10 @@
  * Generic mixins
  */
 @mixin box-shadow($shadow) {
-  -webkit-box-shadow: $shadow;
-  -moz-box-shadow: $shadow;
-  -ms-box-shadow: $shadow;
-  -o-box-shadow: $shadow;
   box-shadow: $shadow;
 }
 
 @mixin border-radius($radius) {
-  -webkit-border-radius: $radius;
-  -moz-border-radius: $radius;
-  -ms-border-radius: $radius;
-  -o-border-radius: $radius;
   border-radius: $radius;
 }
 
@@ -117,4 +109,18 @@
   padding: 5px 10px;
   font-size: 16px;
   line-height: 24px;
+}
+
+@mixin bulleted-list {
+  > ul {
+    list-style-type: disc;
+
+    ul {
+      list-style-type: circle;
+
+      ul {
+        list-style-type: square;
+      }
+    }
+  }
 }

@@ -8,8 +8,8 @@ describe "Admin Runners" do
   describe "Runners page" do
     before do
       runner = FactoryGirl.create(:ci_runner)
-      commit = FactoryGirl.create(:ci_commit)
-      FactoryGirl.create(:ci_build, commit: commit, runner_id: runner.id)
+      pipeline = FactoryGirl.create(:ci_pipeline)
+      FactoryGirl.create(:ci_build, pipeline: pipeline, runner_id: runner.id)
       visit admin_runners_path
     end
 
@@ -60,6 +60,66 @@ describe "Admin Runners" do
       it { expect(page).to have_content(@project1.name_with_namespace) }
       it { expect(page).not_to have_content(@project2.name_with_namespace) }
     end
+
+    describe 'enable/create' do
+      shared_examples 'assignable runner' do
+        it 'enables a runner for a project' do
+          within '.unassigned-projects' do
+            click_on 'Enable'
+          end
+
+          assigned_project = page.find('.assigned-projects')
+
+          expect(assigned_project).to have_content(@project2.path)
+        end
+      end
+
+      context 'with specific runner' do
+        before do
+          @project1.runners << runner
+          visit admin_runner_path(runner)
+        end
+
+        it_behaves_like 'assignable runner'
+      end
+
+      context 'with locked runner' do
+        before do
+          runner.update(locked: true)
+          @project1.runners << runner
+          visit admin_runner_path(runner)
+        end
+
+        it_behaves_like 'assignable runner'
+      end
+
+      context 'with shared runner' do
+        before do
+          @project1.destroy
+          runner.update(is_shared: true)
+          visit admin_runner_path(runner)
+        end
+
+        it_behaves_like 'assignable runner'
+      end
+    end
+
+    describe 'disable/destroy' do
+      before do
+        @project1.runners << runner
+        visit admin_runner_path(runner)
+      end
+
+      it 'enables specific runner for project' do
+        within '.assigned-projects' do
+          click_on 'Disable'
+        end
+
+        new_runner_project = page.find('.unassigned-projects')
+
+        expect(new_runner_project).to have_content(@project1.path)
+      end
+    end
   end
 
   describe 'runners registration token' do
@@ -79,7 +139,7 @@ describe "Admin Runners" do
       end
 
       it 'changes registration token' do
-        expect(page_token).to_not eq token
+        expect(page_token).not_to eq token
       end
     end
   end

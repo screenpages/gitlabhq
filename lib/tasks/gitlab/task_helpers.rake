@@ -2,7 +2,7 @@ module Gitlab
   class TaskAbortedByUserError < StandardError; end
 end
 
-String.disable_colorization = true unless STDOUT.isatty
+require 'rainbow/ext/string'
 
 # Prevent StateMachine warnings from outputting during a cron task
 StateMachines::Machine.ignore_method_conflicts = true if ENV['CRON']
@@ -14,7 +14,7 @@ namespace :gitlab do
   # Returns "yes" the user chose to continue
   # Raises Gitlab::TaskAbortedByUserError if the user chose *not* to continue
   def ask_to_continue
-    answer = prompt("Do you want to continue (yes/no)? ".blue, %w{yes no})
+    answer = prompt("Do you want to continue (yes/no)? ".color(:blue), %w{yes no})
     raise Gitlab::TaskAbortedByUserError unless answer == "yes"
   end
 
@@ -98,10 +98,10 @@ namespace :gitlab do
       gitlab_user = Gitlab.config.gitlab.user
       current_user = run(%W(whoami)).chomp
       unless current_user == gitlab_user
-        puts " Warning ".colorize(:black).on_yellow
-        puts "  You are running as user #{current_user.magenta}, we hope you know what you are doing."
+        puts " Warning ".color(:black).background(:yellow)
+        puts "  You are running as user #{current_user.color(:magenta)}, we hope you know what you are doing."
         puts "  Things may work\/fail for the wrong reasons."
-        puts "  For correct results you should run this as user #{gitlab_user.magenta}."
+        puts "  For correct results you should run this as user #{gitlab_user.color(:magenta)}."
         puts ""
       end
       @warned_user_not_gitlab = true
@@ -125,10 +125,16 @@ namespace :gitlab do
   end
 
   def all_repos
-    IO.popen(%W(find #{Gitlab.config.gitlab_shell.repos_path} -mindepth 2 -maxdepth 2 -type d -name *.git)) do |find|
-      find.each_line do |path|
-        yield path.chomp
+    Gitlab.config.repositories.storages.each do |name, path|
+      IO.popen(%W(find #{path} -mindepth 2 -maxdepth 2 -type d -name *.git)) do |find|
+        find.each_line do |path|
+          yield path.chomp
+        end
       end
     end
+  end
+
+  def repository_storage_paths_args
+    Gitlab.config.repositories.storages.values
   end
 end

@@ -7,7 +7,7 @@ class ApplicationSetting < ActiveRecord::Base
 
   serialize :restricted_visibility_levels
   serialize :import_sources
-  serialize :disabled_oauth_sign_in_sources
+  serialize :disabled_oauth_sign_in_sources, Array
   serialize :restricted_signup_domains, Array
   attr_accessor :restricted_signup_domains_raw
 
@@ -50,6 +50,17 @@ class ApplicationSetting < ActiveRecord::Base
   validates :max_attachment_size,
             presence: true,
             numericality: { only_integer: true, greater_than: 0 }
+
+  validates :container_registry_token_expire_delay,
+            presence: true,
+            numericality: { only_integer: true, greater_than: 0 }
+
+  validates :repository_storage,
+    presence: true,
+    inclusion: { in: ->(_object) { Gitlab.config.repositories.storages.keys } }
+
+  validates :enabled_git_access_protocol,
+            inclusion: { in: %w(ssh http), allow_blank: true, allow_nil: true }
 
   validates_each :restricted_visibility_levels do |record, attr, value|
     unless value.nil?
@@ -98,6 +109,10 @@ class ApplicationSetting < ActiveRecord::Base
     Rails.cache.delete(CACHE_KEY)
   end
 
+  def self.cached
+    Rails.cache.fetch(CACHE_KEY)
+  end
+
   def self.create_from_defaults
     create(
       default_projects_limit: Settings.gitlab['default_projects_limit'],
@@ -105,14 +120,17 @@ class ApplicationSetting < ActiveRecord::Base
       signup_enabled: Settings.gitlab['signup_enabled'],
       signin_enabled: Settings.gitlab['signin_enabled'],
       gravatar_enabled: Settings.gravatar['enabled'],
-      sign_in_text: Settings.extra['sign_in_text'],
+      sign_in_text: nil,
+      after_sign_up_text: nil,
+      help_page_text: nil,
+      shared_runners_text: nil,
       restricted_visibility_levels: Settings.gitlab['restricted_visibility_levels'],
       max_attachment_size: Settings.gitlab['max_attachment_size'],
       session_expire_delay: Settings.gitlab['session_expire_delay'],
       default_project_visibility: Settings.gitlab.default_projects_features['visibility_level'],
       default_snippet_visibility: Settings.gitlab.default_projects_features['visibility_level'],
       restricted_signup_domains: Settings.gitlab['restricted_signup_domains'],
-      import_sources: ['github','bitbucket','gitlab','gitorious','google_code','fogbugz','git'],
+      import_sources: %w[github bitbucket gitlab gitorious google_code fogbugz git gitlab_project],
       shared_runners_enabled: Settings.gitlab_ci['shared_runners_enabled'],
       max_artifacts_size: Settings.artifacts['max_size'],
       require_two_factor_authentication: false,
@@ -121,7 +139,10 @@ class ApplicationSetting < ActiveRecord::Base
       akismet_enabled: false,
       repository_checks_enabled: true,
       disabled_oauth_sign_in_sources: [],
-      send_user_confirmation_email: false
+      send_user_confirmation_email: false,
+      container_registry_token_expire_delay: 5,
+      repository_storage: 'default',
+      user_default_external: false,
     )
   end
 

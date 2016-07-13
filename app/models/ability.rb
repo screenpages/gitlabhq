@@ -1,5 +1,6 @@
 class Ability
   class << self
+    # rubocop: disable Metrics/CyclomaticComplexity
     def allowed(user, subject)
       return anonymous_abilities(user, subject) if user.nil?
       return [] unless user.is_a?(User)
@@ -9,7 +10,6 @@ class Ability
       when CommitStatus then commit_status_abilities(user, subject)
       when Project then project_abilities(user, subject)
       when Issue then issue_abilities(user, subject)
-      when ExternalIssue then external_issue_abilities(user, subject)
       when Note then note_abilities(user, subject)
       when ProjectSnippet then project_snippet_abilities(user, subject)
       when PersonalSnippet then personal_snippet_abilities(user, subject)
@@ -19,24 +19,47 @@ class Ability
       when GroupMember then group_member_abilities(user, subject)
       when ProjectMember then project_member_abilities(user, subject)
       when User then user_abilities
+      when ExternalIssue, Deployment, Environment then project_abilities(user, subject.project)
+      when Ci::Runner then runner_abilities(user, subject)
       else []
       end.concat(global_abilities(user))
     end
 
+    # Given a list of users and a project this method returns the users that can
+    # read the given project.
+    def users_that_can_read_project(users, project)
+      if project.public?
+        users
+      else
+        users.select do |user|
+          if user.admin?
+            true
+          elsif project.internal? && !user.external?
+            true
+          elsif project.owner == user
+            true
+          elsif project.team.members.include?(user)
+            true
+          else
+            false
+          end
+        end
+      end
+    end
+
     # List of possible abilities for anonymous user
     def anonymous_abilities(user, subject)
-      case true
-      when subject.is_a?(PersonalSnippet)
+      if subject.is_a?(PersonalSnippet)
         anonymous_personal_snippet_abilities(subject)
-      when subject.is_a?(ProjectSnippet)
+      elsif subject.is_a?(ProjectSnippet)
         anonymous_project_snippet_abilities(subject)
-      when subject.is_a?(CommitStatus)
+      elsif subject.is_a?(CommitStatus)
         anonymous_commit_status_abilities(subject)
-      when subject.is_a?(Project) || subject.respond_to?(:project)
+      elsif subject.is_a?(Project) || subject.respond_to?(:project)
         anonymous_project_abilities(subject)
-      when subject.is_a?(Group) || subject.respond_to?(:group)
+      elsif subject.is_a?(Group) || subject.respond_to?(:group)
         anonymous_group_abilities(subject)
-      when subject.is_a?(User)
+      elsif subject.is_a?(User)
         anonymous_user_abilities
       else
         []
@@ -134,10 +157,11 @@ class Ability
         # Push abilities on the users team role
         rules.push(*project_team_rules(project.team, user))
 
-        if project.owner == user ||
-          (project.group && project.group.has_owner?(user)) ||
-          user.admin?
+        owner = user.admin? ||
+                project.owner == user ||
+                (project.group && project.group.has_owner?(user))
 
+        if owner
           rules.push(*project_owner_rules)
         end
 
@@ -146,6 +170,10 @@ class Ability
 
           # Allow to read builds for internal projects
           rules << :read_build if project.public_builds?
+
+          unless owner || project.team.member?(user) || project_group_member?(project, user)
+            rules << :request_access
+          end
         end
 
         if project.archived?
@@ -166,6 +194,8 @@ class Ability
         project_report_rules
       elsif team.guest?(user)
         project_guest_rules
+      else
+        []
       end
     end
 
@@ -173,7 +203,8 @@ class Ability
       @public_project_rules ||= project_guest_rules + [
         :download_code,
         :fork_project,
-        :read_commit_status
+        :read_commit_status,
+        :read_pipeline
       ]
     end
 
@@ -207,6 +238,8 @@ class Ability
         :read_build,
         :read_container_image,
         :read_pipeline,
+        :read_environment,
+        :read_deployment
       ]
     end
 
@@ -225,6 +258,8 @@ class Ability
         :push_code,
         :create_container_image,
         :update_container_image,
+        :create_environment,
+        :create_deployment
       ]
     end
 
@@ -242,6 +277,8 @@ class Ability
       @project_master_rules ||= project_dev_rules + [
         :push_code_to_protected_branches,
         :update_project_snippet,
+        :update_environment,
+        :update_deployment,
         :admin_milestone,
         :admin_project_snippet,
         :admin_project_member,
@@ -252,7 +289,9 @@ class Ability
         :admin_commit_status,
         :admin_build,
         :admin_container_image,
-        :admin_pipeline
+        :admin_pipeline,
+        :admin_environment,
+        :admin_deployment
       ]
     end
 
@@ -296,6 +335,8 @@ class Ability
       unless project.builds_enabled
         rules += named_abilities('build')
         rules += named_abilities('pipeline')
+        rules += named_abilities('environment')
+        rules += named_abilities('deployment')
       end
 
       unless project.container_registry_enabled
@@ -309,8 +350,11 @@ class Ability
       rules = []
       rules << :read_group if can_read_group?(user, group)
 
+      owner = user.admin? || group.has_owner?(user)
+      master = owner || group.has_master?(user)
+
       # Only group masters and group owners can create new projects
-      if group.has_master?(user) || group.has_owner?(user) || user.admin?
+      if master
         rules += [
           :create_projects,
           :admin_milestones
@@ -318,13 +362,17 @@ class Ability
       end
 
       # Only group owner and administrators can admin group
-      if group.has_owner?(user) || user.admin?
+      if owner
         rules += [
           :admin_group,
           :admin_namespace,
           :admin_group_member,
           :change_visibility_level
         ]
+      end
+
+      if group.public? || (group.internal? && !user.external?)
+        rules << :request_access unless group.users.include?(user)
       end
 
       rules.flatten
@@ -478,6 +526,18 @@ class Ability
       rules
     end
 
+    def runner_abilities(user, runner)
+      if user.is_admin?
+        [:assign_runner]
+      elsif runner.is_shared? || runner.locked?
+        []
+      elsif user.ci_authorized_runners.include?(runner)
+        [:assign_runner]
+      else
+        []
+      end
+    end
+
     def user_abilities
       [:read_user]
     end
@@ -488,10 +548,6 @@ class Ability
         abilities << self
         abilities
       end
-    end
-
-    def external_issue_abilities(user, subject)
-      project_abilities(user, subject.project)
     end
 
     private
@@ -512,13 +568,21 @@ class Ability
     def filter_confidential_issues_abilities(user, issue, rules)
       return rules if user.admin? || !issue.confidential?
 
-      unless issue.author == user || issue.assignee == user || issue.project.team.member?(user.id)
+      unless issue.author == user || issue.assignee == user || issue.project.team.member?(user, Gitlab::Access::REPORTER)
         rules.delete(:admin_issue)
         rules.delete(:read_issue)
         rules.delete(:update_issue)
       end
 
       rules
+    end
+
+    def project_group_member?(project, user)
+      project.group &&
+      (
+        project.group.members.exists?(user_id: user.id) ||
+        project.group.requesters.exists?(user_id: user.id)
+      )
     end
   end
 end

@@ -103,14 +103,14 @@ Inside the document:
 
 - Every piece of documentation that comes with a new feature should declare the
   GitLab version that feature got introduced. Right below the heading add a
-  note: `_**Note:** This feature was introduced in GitLab 8.3_`
+  note: `>**Note:** This feature was introduced in GitLab 8.3`
 - If possible every feature should have a link to the MR that introduced it.
   The above note would be then transformed to:
-  `_**Note:** This feature was [introduced][ce-1242] in GitLab 8.3_`, where
+  `>**Note:** This feature was [introduced][ce-1242] in GitLab 8.3`, where
   the [link identifier](#links) is named after the repository (CE) and the MR
   number
 - If the feature is only in GitLab EE, don't forget to mention it, like:
-  `_**Note:** This feature was introduced in GitLab EE 8.3_`. Otherwise, leave
+  `>**Note:** This feature was introduced in GitLab EE 8.3`. Otherwise, leave
   this mention out
 
 ## References
@@ -140,6 +140,104 @@ Inside the document:
   website).
 
 [ruby-dl]: https://www.ruby-lang.org/en/downloads/ "Ruby download website"
+
+## Changing document location
+
+Changing a document's location is not to be taken lightly. Remember that the
+documentation is available to all installations under `help/` and not only to
+GitLab.com or http://docs.gitlab.com. Make sure this is discussed with the
+Documentation team beforehand.
+
+If you indeed need to change a document's location, do NOT remove the old
+document, but rather put a text in it that points to the new location, like:
+
+```
+This document was moved to [path/to/new_doc.md](path/to/new_doc.md).
+```
+
+where `path/to/new_doc.md` is the relative path to the root directory `doc/`.
+
+---
+
+For example, if you were to move `doc/workflow/lfs/lfs_administration.md` to
+`doc/administration/lfs.md`, then the steps would be:
+
+1. Copy `doc/workflow/lfs/lfs_administration.md` to `doc/administration/lfs.md`
+1. Replace the contents of `doc/workflow/lfs/lfs_administration.md` with:
+
+    ```
+    This document was moved to [administration/lfs.md](../../administration/lfs.md).
+    ```
+
+1. Find and replace any occurrences of the old location with the new one.
+   A quick way to find them is to use `grep`:
+
+    ```
+    grep -nR "lfs_administration.md" doc/
+    ```
+
+    The above command will search in the `doc/` directory for
+    `lfs_administration.md` recursively and will print the file and the line
+    where this file is mentioned. Note that we used just the filename
+    (`lfs_administration.md`) and not the whole the relative path
+    (`workflow/lfs/lfs_administration.md`).
+
+
+## Configuration documentation for source and Omnibus installations
+
+GitLab currently officially supports two installation methods: installations
+from source and Omnibus packages installations.
+
+Whenever there is a setting that is configurable for both installation methods,
+prefer to document it in the CE docs to avoid duplication.
+
+Configuration settings include:
+
+- settings that touch configuration files in `config/`
+- NGINX settings and settings in `lib/support/` in general
+
+When there is a list of steps to perform, usually that entails editing the
+configuration file and reconfiguring/restarting GitLab. In such case, follow
+the style below as a guide:
+
+````
+**For Omnibus installations**
+
+1. Edit `/etc/gitlab/gitlab.rb`:
+
+    ```ruby
+    external_url "https://gitlab.example.com"
+    ```
+
+1. Save the file and [reconfigure] GitLab for the changes to take effect.
+
+---
+
+**For installations from source**
+
+1. Edit `config/gitlab.yml`:
+
+    ```yaml
+    gitlab:
+      host: "gitlab.example.com"
+    ```
+
+1. Save the file and [restart] GitLab for the changes to take effect.
+
+
+[reconfigure]: path/to/administration/gitlab_restart.md#omnibus-gitlab-reconfigure
+[restart]: path/to/administration/gitlab_restart.md#installations-from-source
+````
+
+In this case:
+
+- before each step list the installation method is declared in bold
+- three dashes (`---`) are used to create an horizontal line and separate the
+  two methods
+- the code blocks are indented one or more spaces under the list item to render
+  correctly
+- different highlighting languages are used for each config in the code block
+- the [references](#references) guide is used for reconfigure/restart
 
 ## API
 
@@ -222,8 +320,8 @@ curl --data "name=foo" -H "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" "https://gitlab.
 
 #### Post data using JSON content
 
-_**Note:** In this example we create a new group. Watch carefully the single
-and double quotes._
+> **Note:** In this example we create a new group. Watch carefully the single
+and double quotes.
 
 ```bash
 curl -X POST -H "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" -H "Content-Type: application/json" --data '{"path": "my-group", "name": "My group"}' https://gitlab.example.com/api/v3/groups

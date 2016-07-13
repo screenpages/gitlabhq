@@ -11,15 +11,14 @@ feature 'project commit builds' do
 
   context 'when no builds triggered yet' do
     background do
-      create(:ci_commit, project: project,
-                         sha: project.commit.sha,
-                         ref: 'master')
+      create(:ci_pipeline, project: project,
+                           sha: project.commit.sha,
+                           ref: 'master')
     end
 
     scenario 'user views commit builds page' do
       visit builds_namespace_project_commit_path(project.namespace,
                                                  project, project.commit.sha)
-
 
       expect(page).to have_content('Builds')
     end

@@ -1,11 +1,12 @@
 - page_title 'Preferences'
+= render 'profiles/head'
 
 = form_for @user, url: profile_preferences_path, remote: true, method: :put, html: {class: 'row prepend-top-default js-preferences-form'} do |f|
   .col-lg-3.profile-settings-sidebar
     %h4.prepend-top-0
       Application theme
     %p
-      This setting allows you to customize the appearance of the site, ex. sidebar.
+      This setting allows you to customize the appearance of the site, e.g. the sidebar.
   .col-lg-9.application-theme
     - Gitlab::Themes.each do |theme|
       = label_tag do

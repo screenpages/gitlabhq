@@ -23,9 +23,10 @@ class GitTagPushService < BaseService
     commits = []
     message = nil
 
-    if !Gitlab::Git.blank_ref?(params[:newrev])
+    unless Gitlab::Git.blank_ref?(params[:newrev])
       tag_name = Gitlab::Git.ref_name(params[:ref])
       tag = project.repository.find_tag(tag_name)
+      
       if tag && tag.target == params[:newrev]
         commit = project.commit(tag.target)
         commits = [commit].compact

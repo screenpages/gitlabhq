@@ -51,10 +51,45 @@ module API
       #   GET /issues?labels=foo,bar
       #   GET /issues?labels=foo,bar&state=opened
       get do
-        issues = current_user.issues
+        issues = current_user.issues.inc_notes_with_associations
         issues = filter_issues_state(issues, params[:state]) unless params[:state].nil?
         issues = filter_issues_labels(issues, params[:labels]) unless params[:labels].nil?
         issues.reorder(issuable_order_by => issuable_sort)
+        present paginate(issues), with: Entities::Issue, current_user: current_user
+      end
+    end
+
+    resource :groups do
+      # Get a list of group issues
+      #
+      # Parameters:
+      #   id (required) - The ID of a group
+      #   state (optional) - Return "opened" or "closed" issues
+      #   labels (optional) - Comma-separated list of label names
+      #   milestone (optional) - Milestone title
+      #   order_by (optional) - Return requests ordered by `created_at` or `updated_at` fields. Default is `created_at`
+      #   sort (optional) - Return requests sorted in `asc` or `desc` order. Default is `desc`
+      #
+      # Example Requests:
+      #   GET /groups/:id/issues
+      #   GET /groups/:id/issues?state=opened
+      #   GET /groups/:id/issues?state=closed
+      #   GET /groups/:id/issues?labels=foo
+      #   GET /groups/:id/issues?labels=foo,bar
+      #   GET /groups/:id/issues?labels=foo,bar&state=opened
+      #   GET /groups/:id/issues?milestone=1.0.0
+      #   GET /groups/:id/issues?milestone=1.0.0&state=closed
+      get ":id/issues" do
+        group = find_group(params[:id])
+
+        params[:state] ||= 'opened'
+        params[:group_id] = group.id
+        params[:milestone_title] = params.delete(:milestone)
+        params[:label_name] = params.delete(:labels)
+        params[:sort] = "#{params.delete(:order_by)}_#{params.delete(:sort)}" if params[:order_by] && params[:sort]
+
+        issues = IssuesFinder.new(current_user, params).execute
+
         present paginate(issues), with: Entities::Issue, current_user: current_user
       end
     end
@@ -82,7 +117,7 @@ module API
       #   GET /projects/:id/issues?milestone=1.0.0&state=closed
       #   GET /issues?iid=42
       get ":id/issues" do
-        issues = user_project.issues.visible_to_user(current_user)
+        issues = user_project.issues.inc_notes_with_associations.visible_to_user(current_user)
         issues = filter_issues_state(issues, params[:state]) unless params[:state].nil?
         issues = filter_issues_labels(issues, params[:labels]) unless params[:labels].nil?
         issues = filter_by_iid(issues, params[:iid]) unless params[:iid].nil?

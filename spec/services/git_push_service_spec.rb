@@ -14,7 +14,6 @@ describe GitPushService, services: true do
   end
 
   describe 'Push branches' do
-
     let(:oldrev) { @oldrev }
     let(:newrev) { @newrev }
 
@@ -23,7 +22,6 @@ describe GitPushService, services: true do
     end
 
     context 'new branch' do
-
       let(:oldrev) { @blankrev }
 
       it { is_expected.to be_truthy }
@@ -40,10 +38,21 @@ describe GitPushService, services: true do
 
         subject
       end
+
+      it 'flushes the branches cache' do
+        expect(project.repository).to receive(:expire_branches_cache)
+
+        subject
+      end
+
+      it 'flushes the branch count cache' do
+        expect(project.repository).to receive(:expire_branch_count_cache)
+
+        subject
+      end
     end
 
     context 'existing branch' do
-
       it { is_expected.to be_truthy }
 
       it 'flushes general cached data' do
@@ -52,16 +61,39 @@ describe GitPushService, services: true do
 
         subject
       end
+
+      it 'does not flush the branches cache' do
+        expect(project.repository).not_to receive(:expire_branches_cache)
+
+        subject
+      end
+
+      it 'does not flush the branch count cache' do
+        expect(project.repository).not_to receive(:expire_branch_count_cache)
+
+        subject
+      end
     end
 
     context 'rm branch' do
-
       let(:newrev) { @blankrev }
 
       it { is_expected.to be_truthy }
 
       it 'flushes the visible content cache' do
         expect(project.repository).to receive(:expire_has_visible_content_cache)
+
+        subject
+      end
+
+      it 'flushes the branches cache' do
+        expect(project.repository).to receive(:expire_branches_cache)
+
+        subject
+      end
+
+      it 'flushes the branch count cache' do
+        expect(project.repository).to receive(:expire_branch_count_cache)
 
         subject
       end
@@ -158,49 +190,6 @@ describe GitPushService, services: true do
     end
   end
 
-  describe "Updates main language" do
-    context "before push" do
-      it { expect(project.main_language).to eq(nil) }
-    end
-
-    context "after push" do
-      def execute
-        execute_service(project, user, @oldrev, @newrev, ref)
-      end
-
-      context "to master" do
-        let(:ref) { @ref }
-
-        context 'when main_language is nil' do
-          it 'obtains the language from the repository' do
-            expect(project.repository).to receive(:main_language)
-            execute
-          end
-
-          it 'sets the project main language' do
-            execute
-            expect(project.main_language).to eq("Ruby")
-          end
-        end
-
-        context 'when main_language is already set' do
-          it 'does not check the repository' do
-            execute # do an initial run to simulate lang being preset
-            expect(project.repository).not_to receive(:main_language)
-            execute
-          end
-        end
-      end
-
-      context "to other branch" do
-        let(:ref) { 'refs/heads/feature/branch' }
-
-        it { expect(project.main_language).to eq(nil) }
-      end
-    end
-  end
-
-
   describe "Updates git attributes" do
     context "for default branch" do
       it "calls the copy attributes method for the first push to the default branch" do
@@ -229,7 +218,6 @@ describe GitPushService, services: true do
       end
     end
   end
-
 
   describe "Webhooks" do
     context "execute webhooks" do
@@ -355,7 +343,10 @@ describe GitPushService, services: true do
       end
 
       it "doesn't close issues when external issue tracker is in use" do
-        allow(project).to receive(:default_issues_tracker?).and_return(false)
+        allow_any_instance_of(Project).to receive(:default_issues_tracker?).
+          and_return(false)
+        external_issue_tracker = double(title: 'My Tracker', issue_path: issue.iid)
+        allow_any_instance_of(Project).to receive(:external_issue_tracker).and_return(external_issue_tracker)
 
         # The push still shouldn't create cross-reference notes.
         expect do
@@ -494,7 +485,6 @@ describe GitPushService, services: true do
         execute_service(project, user, @oldrev, @newrev, @ref)
       end
     end
-
 
     it 'increments the push counter' do
       expect(housekeeping).to receive(:increment!)

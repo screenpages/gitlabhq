@@ -1,6 +1,8 @@
 class Projects::ProjectMembersController < Projects::ApplicationController
+  include MembershipActions
+
   # Authorize
-  before_action :authorize_admin_project_member!, except: [:leave, :index]
+  before_action :authorize_admin_project_member!, except: [:index, :leave, :request_access]
 
   def index
     @project_members = @project.project_members
@@ -14,6 +16,7 @@ class Projects::ProjectMembersController < Projects::ApplicationController
     @project_members = @project_members.order('access_level DESC')
 
     @group = @project.group
+
     if @group
       @group_members = @group.group_members
       @group_members = @group_members.non_invite unless can?(current_user, :admin_group, @group)
@@ -25,6 +28,8 @@ class Projects::ProjectMembersController < Projects::ApplicationController
 
       @group_members = @group_members.order('access_level DESC')
     end
+
+    @requesters = @project.requesters if can?(current_user, :admin_project, @project)
 
     @project_member = @project.project_members.new
     @project_group_links = @project.project_group_links
@@ -45,11 +50,10 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   end
 
   def destroy
-    @project_member = @project.project_members.find(params[:id])
+    @project_member = @project.members.find_by(id: params[:id]) ||
+      @project.requesters.find_by(id: params[:id])
 
-    return render_403 unless can?(current_user, :destroy_project_member, @project_member)
-
-    @project_member.destroy
+    Members::DestroyService.new(@project_member, current_user).execute
 
     respond_to do |format|
       format.html do
@@ -73,26 +77,6 @@ class Projects::ProjectMembersController < Projects::ApplicationController
     end
   end
 
-  def leave
-    @project_member = @project.project_members.find_by(user_id: current_user)
-
-    if can?(current_user, :destroy_project_member, @project_member)
-      @project_member.destroy
-
-      respond_to do |format|
-        format.html { redirect_to dashboard_projects_path, notice: "You left the project." }
-        format.js { head :ok }
-      end
-    else
-      if current_user == @project.owner
-        message = 'You can not leave your own project. Transfer or delete the project.'
-        redirect_back_or_default(default: { action: 'index' }, options: { alert: message })
-      else
-        render_403
-      end
-    end
-  end
-
   def apply_import
     source_project = Project.find(params[:source_project_id])
 
@@ -112,4 +96,7 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   def member_params
     params.require(:project_member).permit(:user_id, :access_level)
   end
+
+  # MembershipActions concern
+  alias_method :membershipable, :project
 end

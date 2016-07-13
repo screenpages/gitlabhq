@@ -2,11 +2,6 @@ if ENV['SIMPLECOV']
   require 'simplecov'
 end
 
-if ENV['COVERALLS']
-  require 'coveralls'
-  Coveralls.wear_merged!
-end
-
 ENV['RAILS_ENV'] = 'test'
 require './config/environment'
 require 'rspec/expectations'
@@ -15,6 +10,11 @@ require 'sidekiq/testing/inline'
 require_relative 'capybara'
 require_relative 'db_cleaner'
 require_relative 'rerun'
+
+if ENV['CI']
+  require 'knapsack'
+  Knapsack::Adapters::RSpecAdapter.bind
+end
 
 %w(select2_helper test_env repo_helpers).each do |f|
   require Rails.root.join('spec', 'support', f)

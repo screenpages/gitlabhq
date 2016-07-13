@@ -25,22 +25,35 @@ class TodosFinder
   def execute
     items = current_user.todos
     items = by_action_id(items)
+    items = by_action(items)
     items = by_author(items)
     items = by_project(items)
     items = by_state(items)
     items = by_type(items)
 
-    items
+    items.reorder(id: :desc)
   end
 
   private
 
   def action_id?
-    action_id.present? && [Todo::ASSIGNED, Todo::MENTIONED, Todo::BUILD_FAILED].include?(action_id.to_i)
+    action_id.present? && [Todo::ASSIGNED, Todo::MENTIONED, Todo::BUILD_FAILED, Todo::MARKED].include?(action_id.to_i)
   end
 
   def action_id
     params[:action_id]
+  end
+
+  def to_action_id
+    Todo::ACTION_NAMES.key(action.to_sym)
+  end
+
+  def action?
+    action.present? && to_action_id
+  end
+
+  def action
+    params[:action]
   end
 
   def author?
@@ -78,12 +91,30 @@ class TodosFinder
     @project
   end
 
+  def projects
+    return @projects if defined?(@projects)
+
+    if project?
+      @projects = project
+    else
+      @projects = ProjectsFinder.new.execute(current_user)
+    end
+  end
+
   def type?
     type.present? && ['Issue', 'MergeRequest'].include?(type)
   end
 
   def type
     params[:type]
+  end
+
+  def by_action(items)
+    if action?
+      items = items.where(action: to_action_id)
+    end
+
+    items
   end
 
   def by_action_id(items)
@@ -105,13 +136,15 @@ class TodosFinder
   def by_project(items)
     if project?
       items = items.where(project: project)
+    elsif projects
+      items = items.merge(projects).joins(:project)
     end
 
     items
   end
 
   def by_state(items)
-    case params[:state]
+    case params[:state].to_s
     when 'done'
       items.done
     else

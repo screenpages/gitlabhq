@@ -1,6 +1,8 @@
 class Groups::GroupMembersController < Groups::ApplicationController
+  include MembershipActions
+
   # Authorize
-  before_action :authorize_admin_group_member!, except: [:index, :leave]
+  before_action :authorize_admin_group_member!, except: [:index, :leave, :request_access]
 
   def index
     @project = @group.projects.find(params[:project_id]) if params[:project_id]
@@ -13,6 +15,7 @@ class Groups::GroupMembersController < Groups::ApplicationController
     end
 
     @members = @members.order('access_level DESC').page(params[:page]).per(50)
+    @requesters = @group.requesters if can?(current_user, :admin_group, @group)
 
     @group_member = @group.group_members.new
   end
@@ -32,11 +35,10 @@ class Groups::GroupMembersController < Groups::ApplicationController
   end
 
   def destroy
-    @group_member = @group.group_members.find(params[:id])
+    @group_member = @group.members.find_by(id: params[:id]) ||
+      @group.requesters.find_by(id: params[:id])
 
-    return render_403 unless can?(current_user, :destroy_group_member, @group_member)
-
-    @group_member.destroy
+    Members::DestroyService.new(@group_member, current_user).execute
 
     respond_to do |format|
       format.html { redirect_to group_group_members_path(@group), notice: 'User was successfully removed from group.' }
@@ -58,25 +60,12 @@ class Groups::GroupMembersController < Groups::ApplicationController
     end
   end
 
-  def leave
-    @group_member = @group.group_members.find_by(user_id: current_user)
-
-    if can?(current_user, :destroy_group_member, @group_member)
-      @group_member.destroy
-
-      redirect_to(dashboard_groups_path, notice: "You left #{group.name} group.")
-    else
-      if @group.last_owner?(current_user)
-        redirect_to(dashboard_groups_path, alert: "You can not leave #{group.name} group because you're the last owner. Transfer or delete the group.")
-      else
-        return render_403
-      end
-    end
-  end
-
   protected
 
   def member_params
     params.require(:group_member).permit(:access_level, :user_id)
   end
+
+  # MembershipActions concern
+  alias_method :membershipable, :group
 end

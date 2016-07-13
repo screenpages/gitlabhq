@@ -17,9 +17,9 @@ module Gitlab
         file.rewind
 
         cmd = []
-        cmd.push *%W(ssh-keygen)
-        cmd.push *%W(-E md5) if explicit_fingerprint_algorithm?
-        cmd.push *%W(-lf #{file.path})
+        cmd.push('ssh-keygen')
+        cmd.push('-E', 'md5') if explicit_fingerprint_algorithm?
+        cmd.push('-lf', file.path)
 
         cmd_output, cmd_status = popen(cmd, '/tmp')
       end
@@ -39,7 +39,7 @@ module Gitlab
       # OpenSSH 6.8 introduces a new default output format for fingerprints.
       # Check the version and decide which command to use.
 
-      version_output, version_status = popen(%W(ssh -V))
+      version_output, version_status = popen(%w(ssh -V))
       return false unless version_status.zero?
 
       version_matches = version_output.match(/OpenSSH_(?<major>\d+)\.(?<minor>\d+)/)

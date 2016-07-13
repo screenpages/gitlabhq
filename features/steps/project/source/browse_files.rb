@@ -202,8 +202,8 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step 'I see Browse dir link' do
-    expect(page).to have_link 'Browse Directory »'
-    expect(page).not_to have_link 'Browse Code »'
+    expect(page).to have_link 'Browse Directory'
+    expect(page).not_to have_link 'Browse Code'
   end
 
   step 'I click on readme file' do
@@ -219,7 +219,7 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
 
   step 'I see Browse code link' do
     expect(page).to have_link 'Browse Files'
-    expect(page).not_to have_link 'Browse Directory »'
+    expect(page).not_to have_link 'Browse Directory'
   end
 
   step 'I click on Permalink' do
@@ -290,15 +290,23 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step "I switch ref to 'test'" do
-    select "'test'", from: 'ref'
+    first('.js-project-refs-dropdown').click
+
+    page.within '.project-refs-form' do
+      click_link 'test'
+    end
   end
 
   step "I switch ref to fix" do
-    select "fix", from: 'ref'
+    first('.js-project-refs-dropdown').click
+
+    page.within '.project-refs-form' do
+      click_link 'fix'
+    end
   end
 
   step "I see the ref 'test' has been selected" do
-    expect(page).to have_selector '.select2-chosen', text: "'test'"
+    expect(page).to have_selector '.dropdown-toggle-text', text: "'test'"
   end
 
   step "I visit the 'test' tree" do
@@ -337,13 +345,15 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step 'I should see buttons for allowed commands' do
-    expect(page).to have_content 'Raw'
-    expect(page).to have_content 'History'
-    expect(page).to have_content 'Permalink'
-    expect(page).not_to have_content 'Edit'
-    expect(page).not_to have_content 'Blame'
-    expect(page).to have_content 'Delete'
-    expect(page).to have_content 'Replace'
+    page.within '.content' do
+      expect(page).to have_content 'Raw'
+      expect(page).to have_content 'History'
+      expect(page).to have_content 'Permalink'
+      expect(page).not_to have_content 'Edit'
+      expect(page).not_to have_content 'Blame'
+      expect(page).to have_content 'Delete'
+      expect(page).to have_content 'Replace'
+    end
   end
 
   step 'I should see a notice about a new fork having been created' do

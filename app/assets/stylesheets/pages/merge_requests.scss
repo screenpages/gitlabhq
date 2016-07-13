@@ -41,7 +41,7 @@
       margin: 0;
       margin-left: 20px;
       padding: 5px;
-      padding-top: 12px;
+      padding-top: 8px;
       line-height: 20px;
 
       &.right {
@@ -79,9 +79,12 @@
     }
 
     &.ci-failed,
-    &.ci-canceled,
     &.ci-error {
       color: $gl-danger;
+    }
+
+    &.ci-canceled {
+      color: $gl-gray;
     }
 
     a.monospace {
@@ -105,10 +108,47 @@
       font-size: 17px;
       margin: 5px 0;
       color: $gl-gray-dark;
+
+      &.has-conflicts .fa-exclamation-triangle {
+        color: $gl-warning;
+      }
+
     }
 
     p:last-child {
       margin-bottom: 0;
+    }
+
+    .btn-grouped {
+      margin-left: 0;
+      margin-right: 7px;
+    }
+
+    @media (max-width: $screen-xs-max) {
+      h4 {
+        font-size: 15px;
+      }
+
+      p {
+        font-size: 13px;
+      }
+
+      .btn,
+      .btn-group,
+      .accept-action {
+        margin-bottom: 4px;
+      }
+
+      .accept-action {
+        width: 100%;
+        text-align: center;
+      }
+
+      .accept-control {
+        width: 100%;
+        text-align: center;
+        margin: 0;
+      }
     }
   }
 
@@ -127,7 +167,8 @@
 
   .commit {
     margin: 0;
-    padding: 2px 0;
+    padding-top: 2px;
+    padding-bottom: 2px;
     list-style: none;
     &:hover {
       background: none;
@@ -213,6 +254,10 @@
 
   .panel-footer {
     padding: 5px 10px;
+
+    .btn {
+      min-width: auto;
+    }
   }
 
   .commit {
@@ -220,10 +265,15 @@
       margin-bottom: 4px;
     }
 
+    .item-title {
+      @media (min-width: $screen-sm-min) {
+        width: 49%;
+      }
+    }
+
     .avatar {
-      width: 20px;
-      height: 20px;
-      margin-right: 5px;
+      left: 0;
+      top: 2px;
     }
 
     .commit-row-info {
@@ -251,7 +301,7 @@
     margin-bottom: 0;
   }
 
-  @media (min-width: $screen-sm-min) {
+  @media (min-width: $screen-xs-min) {
     float: left;
     width: 50%;
     margin-bottom: 0;
@@ -280,11 +330,15 @@
       background-color: $white-light;
       color: $gl-placeholder-color;
     }
-
-    th,
-    td {
-      padding: 16px;
-    }
   }
 }
 
+.merged-buttons {
+  .btn {
+    float: left;
+
+    &:not(:last-child) {
+      margin-right: 10px;
+    }
+  }
+}

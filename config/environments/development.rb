@@ -39,6 +39,10 @@ Rails.application.configure do
   config.action_mailer.delivery_method = :letter_opener_web
   # Don't make a mess when bootstrapping a development environment
   config.action_mailer.perform_deliveries = (ENV['BOOTSTRAP'] != '1')
+  config.action_mailer.preview_path = 'spec/mailers/previews'
 
   config.eager_load = false
+
+  # Do not log asset requests
+  config.assets.quiet = true
 end

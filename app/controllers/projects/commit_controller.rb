@@ -18,9 +18,16 @@ class Projects::CommitController < Projects::ApplicationController
     apply_diff_view_cookie!
 
     @grouped_diff_notes = commit.notes.grouped_diff_notes
+    @notes = commit.notes.non_diff_notes.fresh
+    
+    Banzai::NoteRenderer.render(
+      @grouped_diff_notes.values.flatten + @notes,
+      @project,
+      current_user,
+    )
 
     @note = @project.build_commit_note(commit)
-    @notes = commit.notes.non_diff_notes.fresh
+
     @noteable = @commit
     @comments_target = {
       noteable_type: 'Commit',
@@ -46,7 +53,7 @@ class Projects::CommitController < Projects::ApplicationController
   def retry_builds
     ci_builds.latest.failed.each do |build|
       if build.retryable?
-        Ci::Build.retry(build)
+        Ci::Build.retry(build, current_user)
       end
     end
 
@@ -99,12 +106,12 @@ class Projects::CommitController < Projects::ApplicationController
     @commit ||= @project.commit(params[:id])
   end
 
-  def ci_commits
-    @ci_commits ||= project.ci_commits.where(sha: commit.sha)
+  def pipelines
+    @pipelines ||= project.pipelines.where(sha: commit.sha)
   end
 
   def ci_builds
-    @ci_builds ||= Ci::Build.where(commit: ci_commits)
+    @ci_builds ||= Ci::Build.where(pipeline: pipelines)
   end
 
   def define_show_vars
@@ -114,11 +121,10 @@ class Projects::CommitController < Projects::ApplicationController
     opts[:ignore_whitespace_change] = true if params[:format] == 'diff'
 
     @diffs = commit.diffs(opts)
-    @diff_refs = [commit.parent || commit, commit]
     @notes_count = commit.notes.count
 
-    @statuses = CommitStatus.where(commit: ci_commits)
-    @builds = Ci::Build.where(commit: ci_commits)
+    @statuses = CommitStatus.where(pipeline: pipelines)
+    @builds = Ci::Build.where(pipeline: pipelines)
   end
 
   def assign_change_commit_vars(mr_source_branch)

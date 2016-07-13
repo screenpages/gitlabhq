@@ -1,7 +1,7 @@
 class @Shortcuts
-  constructor: ->
+  constructor: (skipResetBindings) ->
     @enabledHelp = []
-    Mousetrap.reset()
+    Mousetrap.reset() if not skipResetBindings
     Mousetrap.bind('?', @onToggleHelp)
     Mousetrap.bind('s', Shortcuts.focusSearch)
     Mousetrap.bind(['ctrl+shift+p', 'command+shift+p'], @toggleMarkdownPreview)
@@ -9,12 +9,12 @@ class @Shortcuts
 
   onToggleHelp: (e) =>
     e.preventDefault()
-    @toggleHelp(@enabledHelp)
+    Shortcuts.toggleHelp(@enabledHelp)
 
-  toggleMarkdownPreview: (e) =>
+  toggleMarkdownPreview: (e) ->
     $(document).triggerHandler('markdown-preview:toggle', [e])
 
-  toggleHelp: (location) ->
+  @toggleHelp: (location) ->
     $modal = $('#modal-shortcuts')
 
     if $modal.length

@@ -30,7 +30,7 @@ module API
       expose :identities, using: Entities::Identity
       expose :can_create_group?, as: :can_create_group
       expose :can_create_project?, as: :can_create_project
-      expose :two_factor_enabled
+      expose :two_factor_enabled?, as: :two_factor_enabled
       expose :external
     end
 
@@ -58,6 +58,14 @@ module API
       expose :path, :path_with_namespace
     end
 
+    class SharedGroup < Grape::Entity
+      expose :group_id
+      expose :group_name do |group_link, options|
+        group_link.group.name
+      end
+      expose :group_access, as: :group_access_level
+    end
+
     class Project < Grape::Entity
       expose :id, :description, :default_branch, :tag_list
       expose :public?, as: :public
@@ -77,6 +85,9 @@ module API
       expose :open_issues_count, if: lambda { |project, options| project.issues_enabled? && project.default_issues_tracker? }
       expose :runners_token, if: lambda { |_project, options| options[:user_can_admin_project] }
       expose :public_builds
+      expose :shared_with_groups do |project, options|
+        SharedGroup.represent(project.project_group_links.all, options)
+      end
     end
 
     class ProjectMember < UserBasic
@@ -88,14 +99,12 @@ module API
     class Group < Grape::Entity
       expose :id, :name, :path, :description, :visibility_level
       expose :avatar_url
-
-      expose :web_url do |group, options|
-        Gitlab::Routing.url_helpers.group_url(group)
-      end
+      expose :web_url
     end
 
     class GroupDetail < Group
       expose :projects, using: Entities::Project
+      expose :shared_projects, using: Entities::Project
     end
 
     class GroupMember < UserBasic
@@ -171,15 +180,22 @@ module API
       expose :label_names, as: :labels
       expose :milestone, using: Entities::Milestone
       expose :assignee, :author, using: Entities::UserBasic
+
       expose :subscribed do |issue, options|
         issue.subscribed?(options[:current_user])
       end
       expose :user_notes_count
+      expose :upvotes, :downvotes
+    end
+
+    class ExternalIssue < Grape::Entity
+      expose :title
+      expose :id
     end
 
     class MergeRequest < ProjectEntity
       expose :target_branch, :source_branch
-      expose :upvotes,  :downvotes
+      expose :upvotes, :downvotes
       expose :author, :assignee, using: Entities::UserBasic
       expose :source_project_id, :target_project_id
       expose :label_names, as: :labels
@@ -217,8 +233,16 @@ module API
       expose :system?, as: :system
       expose :noteable_id, :noteable_type
       # upvote? and downvote? are deprecated, always return false
-      expose :upvote?, as: :upvote
-      expose :downvote?, as: :downvote
+      expose(:upvote?)    { |note| false }
+      expose(:downvote?)  { |note| false }
+    end
+
+    class AwardEmoji < Grape::Entity
+      expose :id
+      expose :name
+      expose :user, using: Entities::UserBasic
+      expose :created_at, :updated_at
+      expose :awardable_id, :awardable_type
     end
 
     class MRNote < Grape::Entity
@@ -228,9 +252,9 @@ module API
 
     class CommitNote < Grape::Entity
       expose :note
-      expose(:path) { |note| note.diff_file_path if note.legacy_diff_note? }
-      expose(:line) { |note| note.diff_new_line if note.legacy_diff_note? }
-      expose(:line_type) { |note| note.diff_line_type if note.legacy_diff_note? }
+      expose(:path) { |note| note.diff_file.try(:file_path) if note.diff_note? }
+      expose(:line) { |note| note.diff_line.try(:new_line) if note.diff_note? }
+      expose(:line_type) { |note| note.diff_line.try(:type) if note.diff_note? }
       expose :author, using: Entities::UserBasic
       expose :created_at
     end
@@ -258,6 +282,31 @@ module API
 
     class ProjectGroupLink < Grape::Entity
       expose :id, :project_id, :group_id, :group_access
+    end
+
+    class Todo < Grape::Entity
+      expose :id
+      expose :project, using: Entities::BasicProjectDetails
+      expose :author, using: Entities::UserBasic
+      expose :action_name
+      expose :target_type
+
+      expose :target do |todo, options|
+        Entities.const_get(todo.target_type).represent(todo.target, options)
+      end
+
+      expose :target_url do |todo, options|
+        target_type   = todo.target_type.underscore
+        target_url    = "namespace_project_#{target_type}_url"
+        target_anchor = "note_#{todo.note_id}" if todo.note_id?
+
+        Gitlab::Application.routes.url_helpers.public_send(target_url,
+          todo.project.namespace, todo.project, todo.target, anchor: target_anchor)
+      end
+
+      expose :body
+      expose :state
+      expose :created_at
     end
 
     class Namespace < Grape::Entity
@@ -349,6 +398,7 @@ module API
       expose :signin_enabled
       expose :gravatar_enabled
       expose :sign_in_text
+      expose :after_sign_up_text
       expose :created_at
       expose :updated_at
       expose :home_page_url
@@ -362,6 +412,8 @@ module API
       expose :restricted_signup_domains
       expose :user_oauth_applications
       expose :after_sign_out_path
+      expose :container_registry_token_expire_delay
+      expose :repository_storage
     end
 
     class Release < Grape::Entity
@@ -409,6 +461,7 @@ module API
     class RunnerDetails < Runner
       expose :tag_list
       expose :run_untagged
+      expose :locked
       expose :version, :revision, :platform, :architecture
       expose :contacted_at
       expose :token, if: lambda { |runner, options| options[:current_user].is_admin? || !runner.is_shared? }
@@ -430,11 +483,7 @@ module API
       expose :created_at, :started_at, :finished_at
       expose :user, with: User
       expose :artifacts_file, using: BuildArtifactFile, if: -> (build, opts) { build.artifacts? }
-      expose :commit, with: RepoCommit do |repo_obj, _options|
-        if repo_obj.respond_to?(:commit)
-          repo_obj.commit.commit_data
-        end
-      end
+      expose :commit, with: RepoCommit
       expose :runner, with: Runner
     end
 
@@ -456,6 +505,14 @@ module API
       expose(:permissions) { |license| license.meta['permissions'] }
       expose(:limitations) { |license| license.meta['limitations'] }
       expose :content
+    end
+
+    class TemplatesList < Grape::Entity
+      expose :name
+    end
+
+    class Template < Grape::Entity
+      expose :name, :content
     end
   end
 end

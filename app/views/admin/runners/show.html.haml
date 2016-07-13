@@ -28,7 +28,7 @@
   .col-md-6
     %h4 Restrict projects for this runner
     - if @runner.projects.any?
-      %table.table
+      %table.table.assigned-projects
         %thead
           %tr
             %th Assigned projects
@@ -44,7 +44,7 @@
                 .pull-right
                   = link_to 'Disable', [:admin, project.namespace.becomes(Namespace), project, runner_project], method: :delete, class: 'btn btn-danger btn-xs'
 
-    %table.table
+    %table.table.unassigned-projects
       %thead
         %tr
           %th Project
@@ -99,8 +99,8 @@
 
           %td.build-link
             - if project
-              = link_to ci_status_path(build.commit) do
-                %strong #{build.commit.short_sha}
+              = link_to ci_status_path(build.pipeline) do
+                %strong #{build.pipeline.short_sha}
 
           %td.timestamp
             - if build.finished_at

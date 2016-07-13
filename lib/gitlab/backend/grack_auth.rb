@@ -1,5 +1,3 @@
-require_relative 'shell_env'
-
 module Grack
   class AuthSpawner
     def self.call(env)
@@ -10,7 +8,6 @@ module Grack
   end
 
   class Auth < Rack::Auth::Basic
-
     attr_accessor :user, :project, :env
 
     def call(env)
@@ -24,7 +21,7 @@ module Grack
       # Need this if under RELATIVE_URL_ROOT
       unless Gitlab.config.gitlab.relative_url_root.empty?
         # If website is mounted using relative_url_root need to remove it first
-        @env['PATH_INFO'] = @request.path.sub(Gitlab.config.gitlab.relative_url_root,'')
+        @env['PATH_INFO'] = @request.path.sub(Gitlab.config.gitlab.relative_url_root, '')
       else
         @env['PATH_INFO'] = @request.path
       end
@@ -33,13 +30,10 @@ module Grack
 
       auth!
 
-      lfs_response = Gitlab::Lfs::Router.new(project, @user, @request).try_call
+      lfs_response = Gitlab::Lfs::Router.new(project, @user, @ci, @request).try_call
       return lfs_response unless lfs_response.nil?
 
-      if project && authorized_request?
-        # Tell gitlab-workhorse the request is OK, and what the GL_ID is
-        render_grack_auth_ok
-      elsif @user.nil? && !@ci
+      if @user.nil? && !@ci
         unauthorized
       else
         render_not_found
@@ -64,11 +58,6 @@ module Grack
       end
 
       @user = authenticate_user(login, password)
-
-      if @user
-        Gitlab::ShellEnv.set_env(@user)
-        @env['REMOTE_USER'] = @auth.username
-      end
     end
 
     def ci_request?(login, password)
@@ -98,7 +87,7 @@ module Grack
     end
 
     def authenticate_user(login, password)
-      user = Gitlab::Auth.new.find(login, password)
+      user = Gitlab::Auth.find_with_user_password(login, password)
 
       unless user
         user = oauth_access_token_check(login, password)
@@ -141,36 +130,6 @@ module Grack
       user
     end
 
-    def authorized_request?
-      return true if @ci
-
-      case git_cmd
-      when *Gitlab::GitAccess::DOWNLOAD_COMMANDS
-        if !Gitlab.config.gitlab_shell.upload_pack
-          false
-        elsif user
-          Gitlab::GitAccess.new(user, project).download_access_check.allowed?
-        elsif project.public?
-          # Allow clone/fetch for public projects
-          true
-        else
-          false
-        end
-      when *Gitlab::GitAccess::PUSH_COMMANDS
-        if !Gitlab.config.gitlab_shell.receive_pack
-          false
-        elsif user
-          # Skip user authorization on upload request.
-          # It will be done by the pre-receive hook in the repository.
-          true
-        else
-          false
-        end
-      else
-        false
-      end
-    end
-
     def git_cmd
       if @request.get?
         @request.params['service']
@@ -195,24 +154,6 @@ module Grack
         path_with_namespace[0] = '' if path_with_namespace.start_with?('/')
         Project.find_with_namespace(path_with_namespace)
       end
-    end
-
-    def render_grack_auth_ok
-      repo_path =
-        if @request.path_info =~ /^([\w\.\/-]+)\.wiki\.git/
-          ProjectWiki.new(project).repository.path_to_repo
-        else
-          project.repository.path_to_repo
-        end
-
-      [
-        200,
-        { "Content-Type" => "application/json" },
-        [JSON.dump({
-          'GL_ID' => Gitlab::ShellEnv.gl_id(@user),
-          'RepoPath' => repo_path,
-        })]
-      ]
     end
 
     def render_not_found

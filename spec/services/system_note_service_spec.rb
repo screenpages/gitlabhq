@@ -208,10 +208,12 @@ describe SystemNoteService, services: true do
   end
 
   describe '.merge_when_build_succeeds' do
-    let(:ci_commit) { build :ci_commit_without_jobs }
-    let(:noteable) { create :merge_request }
+    let(:pipeline) { build(:ci_pipeline_without_jobs )}
+    let(:noteable) do
+      create(:merge_request, source_project: project, target_project: project)
+    end
 
-    subject { described_class.merge_when_build_succeeds(noteable, project, author, noteable.last_commit) }
+    subject { described_class.merge_when_build_succeeds(noteable, project, author, noteable.diff_head_commit) }
 
     it_behaves_like 'a system note'
 
@@ -221,8 +223,9 @@ describe SystemNoteService, services: true do
   end
 
   describe '.cancel_merge_when_build_succeeds' do
-    let(:ci_commit) { build :ci_commit_without_jobs }
-    let(:noteable) { create :merge_request }
+    let(:noteable) do
+      create(:merge_request, source_project: project, target_project: project)
+    end
 
     subject { described_class.cancel_merge_when_build_succeeds(noteable, project, author) }
 
@@ -526,7 +529,7 @@ describe SystemNoteService, services: true do
     let(:author)     { create(:user) }
     let(:issue)      { create(:issue, project: project) }
     let(:mergereq)   { create(:merge_request, :simple, target_project: project, source_project: project) }
-    let(:jira_issue) { JiraIssue.new("JIRA-1", project)}
+    let(:jira_issue) { ExternalIssue.new("JIRA-1", project)}
     let(:jira_tracker) { project.create_jira_service if project.jira_service.nil? }
     let(:commit)     { project.commit }
 

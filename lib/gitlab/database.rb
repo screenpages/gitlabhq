@@ -1,5 +1,10 @@
 module Gitlab
   module Database
+    # The max value of INTEGER type is the same between MySQL and PostgreSQL:
+    # https://www.postgresql.org/docs/9.2/static/datatype-numeric.html
+    # http://dev.mysql.com/doc/refman/5.7/en/integer-types.html
+    MAX_INT_VALUE = 2147483647
+
     def self.adapter_name
       connection.adapter_name
     end
@@ -14,6 +19,24 @@ module Gitlab
 
     def self.version
       database_version.match(/\A(?:PostgreSQL |)([^\s]+).*\z/)[1]
+    end
+
+    def self.nulls_last_order(field, direction = 'ASC')
+      order = "#{field} #{direction}"
+
+      if Gitlab::Database.postgresql?
+        order << ' NULLS LAST'
+      else
+        # `field IS NULL` will be `0` for non-NULL columns and `1` for NULL
+        # columns. In the (default) ascending order, `0` comes first.
+        order.prepend("#{field} IS NULL, ") if direction == 'ASC'
+      end
+
+      order
+    end
+
+    def self.random
+      Gitlab::Database.postgresql? ? "RANDOM()" : "RAND()"
     end
 
     def true_value

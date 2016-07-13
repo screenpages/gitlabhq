@@ -1,7 +1,6 @@
 require 'spec_helper'
 
 describe Service, models: true do
-
   describe "Associations" do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
@@ -176,7 +175,6 @@ describe Service, models: true do
       )
     end
 
-
     it "returns nil when the property has not been assigned a new value" do
       service.username = "key_changed"
       expect(service.bamboo_url_was).to be_nil
@@ -202,6 +200,39 @@ describe Service, models: true do
       service.bamboo_url = 'http://example.com'
       service.save
       expect(service.bamboo_url_was).to be_nil
+    end
+  end
+
+  describe "callbacks" do
+    let(:project) { create(:project) }
+    let!(:service) do
+      RedmineService.new(
+        project: project,
+        active: true,
+        properties: {
+          project_url: 'http://redmine/projects/project_name_in_redmine',
+          issues_url: "http://redmine/#{project.id}/project_name_in_redmine/:id",
+          new_issue_url: 'http://redmine/projects/project_name_in_redmine/issues/new'
+        }
+      )
+    end
+
+    describe "on create" do
+      it "updates the has_external_issue_tracker boolean" do
+        expect do
+          service.save!
+        end.to change { service.project.has_external_issue_tracker }.from(nil).to(true)
+      end
+    end
+
+    describe "on update" do
+      it "updates the has_external_issue_tracker boolean" do
+        service.save!
+
+        expect do
+          service.update_attributes(active: false)
+        end.to change { service.project.has_external_issue_tracker }.from(true).to(false)
+      end
     end
   end
 end

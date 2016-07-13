@@ -3,11 +3,6 @@ if ENV['SIMPLECOV']
   SimpleCov.start :rails
 end
 
-if ENV['COVERALLS']
-  require 'coveralls'
-  Coveralls.wear_merged!
-end
-
 ENV["RAILS_ENV"] ||= 'test'
 
 require File.expand_path("../../config/environment", __FILE__)
@@ -15,6 +10,11 @@ require 'rspec/rails'
 require 'shoulda/matchers'
 require 'sidekiq/testing/inline'
 require 'rspec/retry'
+
+if ENV['CI']
+  require 'knapsack'
+  Knapsack::Adapters::RSpecAdapter.bind
+end
 
 # Requires supporting ruby files with custom matchers and macros, etc,
 # in spec/support/ and its subdirectories.

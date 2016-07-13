@@ -49,14 +49,12 @@ Feature: Project Merge Requests
   Scenario: I visit an open merge request page
     Given I click link "Bug NS-04"
     Then I should see merge request "Bug NS-04"
-    And I should see "1 of 1" in the sidebar
 
   Scenario: I visit a merged merge request page
     Given project "Shop" have "Feature NS-05" merged merge request
     And I click link "Merged"
     And I click link "Feature NS-05"
     Then I should see merge request "Feature NS-05"
-    And I should see "3 of 3" in the sidebar
 
   Scenario: I close merge request page
     Given I click link "Bug NS-04"
@@ -76,18 +74,6 @@ Feature: Project Merge Requests
     And I submit new merge request "Wiki Feature"
     Then I should see merge request "Wiki Feature"
 
-  Scenario: I download a diff on a public merge request
-    Given public project "Community"
-    And "John Doe" owns public project "Community"
-    And project "Community" has "Bug CO-01" open merge request with diffs inside
-    Given I logout directly
-    And I visit merge request page "Bug CO-01"
-    And I click on "Email Patches"
-    Then I should see a patch diff
-    And I visit merge request page "Bug CO-01"
-    And I click on "Plain Diff"
-    Then I should see a patch diff
-
   @javascript
   Scenario: I comment on a merge request
     Given I visit merge request page "Bug NS-04"
@@ -100,13 +86,6 @@ Feature: Project Merge Requests
     And I sort the list by "Oldest updated"
     And I visit my project's home page
     And I visit project "Shop" merge requests page
-    Then The list should be sorted by "Oldest updated"
-
-  @javascript
-  Scenario: Visiting Issues after being sorted the list
-    Given I visit project "Shop" merge requests page
-    And I sort the list by "Oldest updated"
-    And I visit project "Shop" issues page
     Then The list should be sorted by "Oldest updated"
 
   @javascript

@@ -13,10 +13,11 @@ describe Projects::RawController do
             project_id: public_project.to_param,
             id: id)
 
-        expect(response.status).to eq(200)
+        expect(response).to have_http_status(200)
         expect(response.header['Content-Type']).to eq('text/plain; charset=utf-8')
         expect(response.header['Content-Disposition']).
             to eq("inline")
+        expect(response.header[Gitlab::Workhorse::SEND_DATA_HEADER]).to start_with("git-blob:")
       end
     end
 
@@ -29,8 +30,9 @@ describe Projects::RawController do
             project_id: public_project.to_param,
             id: id)
 
-        expect(response.status).to eq(200)
+        expect(response).to have_http_status(200)
         expect(response.header['Content-Type']).to eq('image/jpeg')
+        expect(response.header[Gitlab::Workhorse::SEND_DATA_HEADER]).to start_with("git-blob:")
       end
     end
 
@@ -52,7 +54,7 @@ describe Projects::RawController do
               project_id: public_project.to_param,
               id: id)
 
-          expect(response.status).to eq(200)
+          expect(response).to have_http_status(200)
         end
       end
 
@@ -63,7 +65,7 @@ describe Projects::RawController do
               project_id: public_project.to_param,
               id: id)
 
-          expect(response.status).to eq(404)
+          expect(response).to have_http_status(404)
         end
       end
     end

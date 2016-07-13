@@ -46,10 +46,27 @@ describe Event, models: true do
     it { expect(@event.author).to eq(@user) }
   end
 
+  describe '#note?' do
+    subject { Event.new(project: target.project, target: target) }
+
+    context 'issue note event' do
+      let(:target) { create(:note_on_issue) }
+
+      it { is_expected.to be_note }
+    end
+
+    context 'merge request diff note event' do
+      let(:target) { create(:legacy_diff_note_on_merge_request) }
+
+      it { is_expected.to be_note }
+    end
+  end
+
   describe '#visible_to_user?' do
     let(:project) { create(:empty_project, :public) }
     let(:non_member) { create(:user) }
     let(:member)  { create(:user) }
+    let(:guest)  { create(:user) }
     let(:author) { create(:author) }
     let(:assignee) { create(:user) }
     let(:admin) { create(:admin) }
@@ -61,6 +78,7 @@ describe Event, models: true do
 
     before do
       project.team << [member, :developer]
+      project.team << [guest, :guest]
     end
 
     context 'issue event' do
@@ -71,6 +89,7 @@ describe Event, models: true do
         it { expect(event.visible_to_user?(author)).to eq true }
         it { expect(event.visible_to_user?(assignee)).to eq true }
         it { expect(event.visible_to_user?(member)).to eq true }
+        it { expect(event.visible_to_user?(guest)).to eq true }
         it { expect(event.visible_to_user?(admin)).to eq true }
       end
 
@@ -81,11 +100,12 @@ describe Event, models: true do
         it { expect(event.visible_to_user?(author)).to eq true }
         it { expect(event.visible_to_user?(assignee)).to eq true }
         it { expect(event.visible_to_user?(member)).to eq true }
+        it { expect(event.visible_to_user?(guest)).to eq false }
         it { expect(event.visible_to_user?(admin)).to eq true }
       end
     end
 
-    context 'note event' do
+    context 'issue note event' do
       context 'on non confidential issues' do
         let(:target) { note_on_issue }
 
@@ -93,6 +113,7 @@ describe Event, models: true do
         it { expect(event.visible_to_user?(author)).to eq true }
         it { expect(event.visible_to_user?(assignee)).to eq true }
         it { expect(event.visible_to_user?(member)).to eq true }
+        it { expect(event.visible_to_user?(guest)).to eq true }
         it { expect(event.visible_to_user?(admin)).to eq true }
       end
 
@@ -103,8 +124,23 @@ describe Event, models: true do
         it { expect(event.visible_to_user?(author)).to eq true }
         it { expect(event.visible_to_user?(assignee)).to eq true }
         it { expect(event.visible_to_user?(member)).to eq true }
+        it { expect(event.visible_to_user?(guest)).to eq false }
         it { expect(event.visible_to_user?(admin)).to eq true }
       end
+    end
+
+    context 'merge request diff note event' do
+      let(:project) { create(:project, :public) }
+      let(:merge_request) { create(:merge_request, source_project: project, author: author, assignee: assignee) }
+      let(:note_on_merge_request) { create(:legacy_diff_note_on_merge_request, noteable: merge_request, project: project) }
+      let(:target) { note_on_merge_request }
+
+      it { expect(event.visible_to_user?(non_member)).to eq true }
+      it { expect(event.visible_to_user?(author)).to eq true }
+      it { expect(event.visible_to_user?(assignee)).to eq true }
+      it { expect(event.visible_to_user?(member)).to eq true }
+      it { expect(event.visible_to_user?(guest)).to eq true }
+      it { expect(event.visible_to_user?(admin)).to eq true }
     end
   end
 

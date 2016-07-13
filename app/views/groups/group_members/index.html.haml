@@ -1,23 +1,23 @@
 - page_title "Members"
 
 .group-members-page.prepend-top-default
-  - if current_user && current_user.can?(:admin_group_member, @group)
+  - if can?(current_user, :admin_group_member, @group)
     .panel.panel-default
       .panel-heading
         Add new user to group
       .panel-body
-        - if should_user_see_group_roles?(current_user, @group)
-          %p.light
-            Members of group have access to all group projects.
+        %p.light
+          Members of group have access to all group projects.
         .new-group-member-holder
           = render "new_group_member"
+
+    = render 'shared/members/requests', membership_source: @group, requesters: @requesters
 
   .panel.panel-default
     .panel-heading
       %strong #{@group.name}
       group members
-      %small
-        (#{@members.total_count})
+      %span.badge= @members.size
       .controls
         = form_tag group_group_members_path(@group), method: :get, class: 'form-inline member-search-form'  do
           .form-group
@@ -25,8 +25,7 @@
           = button_tag class: 'btn', title: 'Search' do
             = icon("search")
     %ul.content-list
-      - @members.each do |member|
-        = render 'groups/group_members/group_member', member: member, show_controls: true
+      = render partial: 'shared/members/member', collection: @members, as: :member
     = paginate @members, theme: 'gitlab'
 
 :javascript

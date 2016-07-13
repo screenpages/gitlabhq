@@ -11,6 +11,8 @@ describe Project, models: true do
     it { is_expected.to have_many(:issues).dependent(:destroy) }
     it { is_expected.to have_many(:milestones).dependent(:destroy) }
     it { is_expected.to have_many(:project_members).dependent(:destroy) }
+    it { is_expected.to have_many(:users).through(:project_members) }
+    it { is_expected.to have_many(:requesters).dependent(:destroy) }
     it { is_expected.to have_many(:notes).dependent(:destroy) }
     it { is_expected.to have_many(:snippets).class_name('ProjectSnippet').dependent(:destroy) }
     it { is_expected.to have_many(:deploy_keys_projects).dependent(:destroy) }
@@ -22,13 +24,43 @@ describe Project, models: true do
     it { is_expected.to have_one(:pushover_service).dependent(:destroy) }
     it { is_expected.to have_one(:asana_service).dependent(:destroy) }
     it { is_expected.to have_many(:commit_statuses) }
-    it { is_expected.to have_many(:ci_commits) }
+    it { is_expected.to have_many(:pipelines) }
     it { is_expected.to have_many(:builds) }
     it { is_expected.to have_many(:runner_projects) }
     it { is_expected.to have_many(:runners) }
     it { is_expected.to have_many(:variables) }
     it { is_expected.to have_many(:triggers) }
+    it { is_expected.to have_many(:environments).dependent(:destroy) }
+    it { is_expected.to have_many(:deployments).dependent(:destroy) }
     it { is_expected.to have_many(:todos).dependent(:destroy) }
+
+    describe '#members & #requesters' do
+      let(:project) { create(:project) }
+      let(:requester) { create(:user) }
+      let(:developer) { create(:user) }
+      before do
+        project.request_access(requester)
+        project.team << [developer, :developer]
+      end
+
+      describe '#members' do
+        it 'includes members and exclude requesters' do
+          member_user_ids = project.members.pluck(:user_id)
+
+          expect(member_user_ids).to include(developer.id)
+          expect(member_user_ids).not_to include(requester.id)
+        end
+      end
+
+      describe '#requesters' do
+        it 'does not include requesters' do
+          requester_user_ids = project.requesters.pluck(:user_id)
+
+          expect(requester_user_ids).to include(requester.id)
+          expect(requester_user_ids).not_to include(developer.id)
+        end
+      end
+    end
   end
 
   describe 'modules' do
@@ -53,14 +85,61 @@ describe Project, models: true do
     it { is_expected.to validate_length_of(:path).is_within(0..255) }
     it { is_expected.to validate_length_of(:description).is_within(0..2000) }
     it { is_expected.to validate_presence_of(:creator) }
-    it { is_expected.to validate_length_of(:issues_tracker_id).is_within(0..255) }
     it { is_expected.to validate_presence_of(:namespace) }
+    it { is_expected.to validate_presence_of(:repository_storage) }
 
     it 'should not allow new projects beyond user limits' do
       project2 = build(:project)
       allow(project2).to receive(:creator).and_return(double(can_create_project?: false, projects_limit: 0).as_null_object)
       expect(project2).not_to be_valid
-      expect(project2.errors[:limit_reached].first).to match(/Your project limit is 0/)
+      expect(project2.errors[:limit_reached].first).to match(/Personal project creation is not allowed/)
+    end
+
+    describe 'wiki path conflict' do
+      context "when the new path has been used by the wiki of other Project" do
+        it 'should have an error on the name attribute' do
+          new_project = build_stubbed(:project, namespace_id: project.namespace_id, path: "#{project.path}.wiki")
+
+          expect(new_project).not_to be_valid
+          expect(new_project.errors[:name].first).to eq('has already been taken')
+        end
+      end
+
+      context "when the new wiki path has been used by the path of other Project" do
+        it 'should have an error on the name attribute' do
+          project_with_wiki_suffix = create(:project, path: 'foo.wiki')
+          new_project = build_stubbed(:project, namespace_id: project_with_wiki_suffix.namespace_id, path: 'foo')
+
+          expect(new_project).not_to be_valid
+          expect(new_project.errors[:name].first).to eq('has already been taken')
+        end
+      end
+    end
+
+    context 'repository storages inclussion' do
+      let(:project2) { build(:project, repository_storage: 'missing') }
+
+      before do
+        storages = { 'custom' => 'tmp/tests/custom_repositories' }
+        allow(Gitlab.config.repositories).to receive(:storages).and_return(storages)
+      end
+
+      it "should not allow repository storages that don't match a label in the configuration" do
+        expect(project2).not_to be_valid
+        expect(project2.errors[:repository_storage].first).to match(/is not included in the list/)
+      end
+    end
+
+    it 'should not allow an invalid URI as import_url' do
+      project2 = build(:project, import_url: 'invalid://')
+
+      expect(project2).not_to be_valid
+    end
+
+    it 'should allow a valid URI as import_url' do
+      project2 = build(:project, import_url: 'ssh://test@gitlab.com/project.git')
+
+      expect(project2).to be_valid
     end
   end
 
@@ -90,9 +169,15 @@ describe Project, models: true do
     it { is_expected.to respond_to(:repo_exists?) }
     it { is_expected.to respond_to(:update_merge_requests) }
     it { is_expected.to respond_to(:execute_hooks) }
-    it { is_expected.to respond_to(:name_with_namespace) }
     it { is_expected.to respond_to(:owner) }
     it { is_expected.to respond_to(:path_with_namespace) }
+  end
+
+  describe '#name_with_namespace' do
+    let(:project) { build_stubbed(:empty_project) }
+
+    it { expect(project.name_with_namespace).to eq "#{project.namespace.human_name} / #{project.name}" }
+    it { expect(project.human_name).to eq project.name_with_namespace }
   end
 
   describe '#to_reference' do
@@ -100,6 +185,24 @@ describe Project, models: true do
 
     it 'returns a String reference to the object' do
       expect(project.to_reference).to eq project.path_with_namespace
+    end
+  end
+
+  describe '#repository_storage_path' do
+    let(:project) { create(:project, repository_storage: 'custom') }
+
+    before do
+      FileUtils.mkdir('tmp/tests/custom_repositories')
+      storages = { 'custom' => 'tmp/tests/custom_repositories' }
+      allow(Gitlab.config.repositories).to receive(:storages).and_return(storages)
+    end
+
+    after do
+      FileUtils.rm_rf('tmp/tests/custom_repositories')
+    end
+
+    it 'returns the repository storage path' do
+      expect(project.repository_storage_path).to eq('tmp/tests/custom_repositories')
     end
   end
 
@@ -209,11 +312,11 @@ describe Project, models: true do
     it 'should update merge request commits with new one if pushed to source branch' do
       project.update_merge_requests(prev_commit_id, commit_id, "refs/heads/#{merge_request.source_branch}", key.user)
       merge_request.reload
-      expect(merge_request.last_commit.id).to eq(commit_id)
+      expect(merge_request.diff_head_sha).to eq(commit_id)
     end
   end
 
-  describe :find_with_namespace do
+  describe '.find_with_namespace' do
     context 'with namespace' do
       before do
         @group = create :group, name: 'gitlab'
@@ -223,6 +326,22 @@ describe Project, models: true do
       it { expect(Project.find_with_namespace('gitlab/gitlabhq')).to eq(@project) }
       it { expect(Project.find_with_namespace('GitLab/GitlabHQ')).to eq(@project) }
       it { expect(Project.find_with_namespace('gitlab-ci')).to be_nil }
+    end
+
+    context 'when multiple projects using a similar name exist' do
+      let(:group) { create(:group, name: 'gitlab') }
+
+      let!(:project1) do
+        create(:empty_project, name: 'gitlab1', path: 'gitlab', namespace: group)
+      end
+
+      let!(:project2) do
+        create(:empty_project, name: 'gitlab2', path: 'GITLAB', namespace: group)
+      end
+
+      it 'returns the row where the path matches literally' do
+        expect(Project.find_with_namespace('gitlab/GITLAB')).to eq(project2)
+      end
     end
   end
 
@@ -258,24 +377,66 @@ describe Project, models: true do
     end
   end
 
-  describe :can_have_issues_tracker_id? do
+  describe :external_issue_tracker do
     let(:project) { create(:project) }
     let(:ext_project) { create(:redmine_project) }
 
-    it 'should be true for projects with external issues tracker if issues enabled' do
-      expect(ext_project.can_have_issues_tracker_id?).to be_truthy
+    context 'on existing projects with no value for has_external_issue_tracker' do
+      before(:each) do
+        project.update_column(:has_external_issue_tracker, nil)
+        ext_project.update_column(:has_external_issue_tracker, nil)
+      end
+
+      it 'updates the has_external_issue_tracker boolean' do
+        expect do
+          project.external_issue_tracker
+        end.to change { project.reload.has_external_issue_tracker }.to(false)
+
+        expect do
+          ext_project.external_issue_tracker
+        end.to change { ext_project.reload.has_external_issue_tracker }.to(true)
+      end
     end
 
-    it 'should be false for projects with internal issue tracker if issues enabled' do
-      expect(project.can_have_issues_tracker_id?).to be_falsey
+    it 'returns nil and does not query services when there is no external issue tracker' do
+      project.build_missing_services
+      project.reload
+
+      expect(project).not_to receive(:services)
+
+      expect(project.external_issue_tracker).to eq(nil)
     end
 
-    it 'should be always false if issues disabled' do
-      project.issues_enabled = false
-      ext_project.issues_enabled = false
+    it 'retrieves external_issue_tracker querying services and cache it when there is external issue tracker' do
+      ext_project.reload # Factory returns a project with changed attributes
+      ext_project.build_missing_services
+      ext_project.reload
 
-      expect(project.can_have_issues_tracker_id?).to be_falsey
-      expect(ext_project.can_have_issues_tracker_id?).to be_falsey
+      expect(ext_project).to receive(:services).once.and_call_original
+
+      2.times { expect(ext_project.external_issue_tracker).to be_a_kind_of(RedmineService) }
+    end
+  end
+
+  describe :cache_has_external_issue_tracker do
+    let(:project) { create(:project) }
+
+    it 'stores true if there is any external_issue_tracker' do
+      services = double(:service, external_issue_trackers: [RedmineService.new])
+      expect(project).to receive(:services).and_return(services)
+
+      expect do
+        project.cache_has_external_issue_tracker
+      end.to change { project.has_external_issue_tracker}.to(true)
+    end
+
+    it 'stores false if there is no external_issue_tracker' do
+      services = double(:service, external_issue_trackers: [])
+      expect(project).to receive(:services).and_return(services)
+
+      expect do
+        project.cache_has_external_issue_tracker
+      end.to change { project.has_external_issue_tracker}.to(false)
     end
   end
 
@@ -288,6 +449,14 @@ describe Project, models: true do
 
     it { expect(project.open_branches.map(&:name)).to include('feature') }
     it { expect(project.open_branches.map(&:name)).not_to include('master') }
+
+    it "includes branches matching a protected branch wildcard" do
+      expect(project.open_branches.map(&:name)).to include('feature')
+
+      create(:protected_branch, name: 'feat*', project: project)
+
+      expect(Project.find(project.id).open_branches.map(&:name)).to include('feature')
+    end
   end
 
   describe '#star_count' do
@@ -399,23 +568,23 @@ describe Project, models: true do
     end
   end
 
-  describe :ci_commit do
+  describe :pipeline do
     let(:project) { create :project }
-    let(:commit) { create :ci_commit, project: project, ref: 'master' }
+    let(:pipeline) { create :ci_pipeline, project: project, ref: 'master' }
 
-    subject { project.ci_commit(commit.sha, 'master') }
+    subject { project.pipeline(pipeline.sha, 'master') }
 
-    it { is_expected.to eq(commit) }
+    it { is_expected.to eq(pipeline) }
 
     context 'return latest' do
-      let(:commit2) { create :ci_commit, project: project, ref: 'master' }
+      let(:pipeline2) { create :ci_pipeline, project: project, ref: 'master' }
 
       before do
-        commit
-        commit2
+        pipeline
+        pipeline2
       end
 
-      it { is_expected.to eq(commit2) }
+      it { is_expected.to eq(pipeline2) }
     end
   end
 
@@ -486,6 +655,21 @@ describe Project, models: true do
     describe 'when a user does not have access to any projects' do
       it { is_expected.to eq([]) }
     end
+  end
+
+  context 'repository storage by default' do
+    let(:project) { create(:empty_project) }
+
+    subject { project.repository_storage }
+
+    before do
+      storages = { 'alternative_storage' => '/some/path' }
+      allow(Gitlab.config.repositories).to receive(:storages).and_return(storages)
+      stub_application_setting(repository_storage: 'alternative_storage')
+      allow_any_instance_of(Project).to receive(:ensure_dir_exist).and_return(true)
+    end
+
+    it { is_expected.to eq('alternative_storage') }
   end
 
   context 'shared runners by default' do
@@ -643,12 +827,12 @@ describe Project, models: true do
 
       expect(gitlab_shell).to receive(:mv_repository).
         ordered.
-        with("#{ns}/foo", "#{ns}/#{project.path}").
+        with(project.repository_storage_path, "#{ns}/foo", "#{ns}/#{project.path}").
         and_return(true)
 
       expect(gitlab_shell).to receive(:mv_repository).
         ordered.
-        with("#{ns}/foo.wiki", "#{ns}/#{project.path}.wiki").
+        with(project.repository_storage_path, "#{ns}/foo.wiki", "#{ns}/#{project.path}.wiki").
         and_return(true)
 
       expect_any_instance_of(SystemHooksService).
@@ -740,7 +924,7 @@ describe Project, models: true do
     context 'using a regular repository' do
       it 'creates the repository' do
         expect(shell).to receive(:add_repository).
-          with(project.path_with_namespace).
+          with(project.repository_storage_path, project.path_with_namespace).
           and_return(true)
 
         expect(project.repository).to receive(:after_create)
@@ -750,7 +934,7 @@ describe Project, models: true do
 
       it 'adds an error if the repository could not be created' do
         expect(shell).to receive(:add_repository).
-          with(project.path_with_namespace).
+          with(project.repository_storage_path, project.path_with_namespace).
           and_return(false)
 
         expect(project.repository).not_to receive(:after_create)
@@ -773,15 +957,76 @@ describe Project, models: true do
   describe '#protected_branch?' do
     let(:project) { create(:empty_project) }
 
-    it 'returns true when a branch is a protected branch' do
+    it 'returns true when the branch matches a protected branch via direct match' do
       project.protected_branches.create!(name: 'foo')
 
       expect(project.protected_branch?('foo')).to eq(true)
     end
 
-    it 'returns false when a branch is not a protected branch' do
+    it 'returns true when the branch matches a protected branch via wildcard match' do
+      project.protected_branches.create!(name: 'production/*')
+
+      expect(project.protected_branch?('production/some-branch')).to eq(true)
+    end
+
+    it 'returns false when the branch does not match a protected branch via direct match' do
       expect(project.protected_branch?('foo')).to eq(false)
     end
+
+    it 'returns false when the branch does not match a protected branch via wildcard match' do
+      project.protected_branches.create!(name: 'production/*')
+
+      expect(project.protected_branch?('staging/some-branch')).to eq(false)
+    end
+  end
+
+  describe "#developers_can_push_to_protected_branch?" do
+    let(:project) { create(:empty_project) }
+
+    context "when the branch matches a protected branch via direct match" do
+      it "returns true if 'Developers can Push' is turned on" do
+        create(:protected_branch, name: "production", project: project, developers_can_push: true)
+
+        expect(project.developers_can_push_to_protected_branch?('production')).to be true
+      end
+
+      it "returns false if 'Developers can Push' is turned off" do
+        create(:protected_branch, name: "production", project: project, developers_can_push: false)
+
+        expect(project.developers_can_push_to_protected_branch?('production')).to be false
+      end
+    end
+
+    context "when the branch matches a protected branch via wilcard match" do
+      it "returns true if 'Developers can Push' is turned on" do
+        create(:protected_branch, name: "production/*", project: project, developers_can_push: true)
+
+        expect(project.developers_can_push_to_protected_branch?('production/some-branch')).to be true
+      end
+
+      it "returns false if 'Developers can Push' is turned off" do
+        create(:protected_branch, name: "production/*", project: project, developers_can_push: false)
+
+        expect(project.developers_can_push_to_protected_branch?('production/some-branch')).to be false
+      end
+    end
+
+    context "when the branch does not match a protected branch" do
+      it "returns false" do
+        create(:protected_branch, name: "production/*", project: project, developers_can_push: true)
+
+        expect(project.developers_can_push_to_protected_branch?('staging/some-branch')).to be false
+      end
+    end
+  end
+
+  describe '#container_registry_path_with_namespace' do
+    let(:project) { create(:empty_project, path: 'PROJECT') }
+
+    subject { project.container_registry_path_with_namespace }
+
+    it { is_expected.not_to eq(project.path_with_namespace) }
+    it { is_expected.to eq(project.path_with_namespace.downcase) }
   end
 
   describe '#container_registry_repository' do
@@ -791,7 +1036,7 @@ describe Project, models: true do
 
     subject { project.container_registry_repository }
 
-    it { is_expected.to_not be_nil }
+    it { is_expected.not_to be_nil }
   end
 
   describe '#container_registry_repository_url' do
@@ -809,7 +1054,7 @@ describe Project, models: true do
         }
       end
 
-      it { is_expected.to_not be_nil }
+      it { is_expected.not_to be_nil }
     end
 
     context 'for disabled registry' do
@@ -848,6 +1093,39 @@ describe Project, models: true do
       before { stub_container_registry_config(enabled: false) }
 
       it { is_expected.to be_falsey }
+    end
+  end
+
+  describe '.where_paths_in' do
+    context 'without any paths' do
+      it 'returns an empty relation' do
+        expect(Project.where_paths_in([])).to eq([])
+      end
+    end
+
+    context 'without any valid paths' do
+      it 'returns an empty relation' do
+        expect(Project.where_paths_in(%w[foo])).to eq([])
+      end
+    end
+
+    context 'with valid paths' do
+      let!(:project1) { create(:project) }
+      let!(:project2) { create(:project) }
+
+      it 'returns the projects matching the paths' do
+        projects = Project.where_paths_in([project1.path_with_namespace,
+                                           project2.path_with_namespace])
+
+        expect(projects).to contain_exactly(project1, project2)
+      end
+
+      it 'returns projects regardless of the casing of paths' do
+        projects = Project.where_paths_in([project1.path_with_namespace.upcase,
+                                           project2.path_with_namespace.upcase])
+
+        expect(projects).to contain_exactly(project1, project2)
+      end
     end
   end
 end

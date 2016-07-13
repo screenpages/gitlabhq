@@ -26,18 +26,21 @@ module LoginHelpers
 
   # Internal: Login as the specified user
   #
-  # user - User instance to login with
-  def login_with(user)
+  # user     - User instance to login with
+  # remember - Whether or not to check "Remember me" (default: false)
+  def login_with(user, remember: false)
     visit new_user_session_path
     fill_in "user_login", with: user.email
     fill_in "user_password", with: "12345678"
+    check 'user_remember_me' if remember
     click_button "Sign in"
     Thread.current[:current_user] = user
   end
 
   # Requires Javascript driver.
   def logout
-    find(:css, ".fa.fa-sign-out").click
+    find(".header-user-dropdown-toggle").click
+    click_link "Sign out"
   end
 
   # Logout without JavaScript driver

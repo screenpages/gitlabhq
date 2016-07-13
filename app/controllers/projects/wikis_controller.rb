@@ -16,6 +16,9 @@ class Projects::WikisController < Projects::ApplicationController
     if @page
       render 'show'
     elsif file = @project_wiki.find_file(params[:id], params[:version_id])
+      response.headers['Content-Security-Policy'] = "default-src 'none'"
+      response.headers['X-Content-Security-Policy'] = "default-src 'none'"
+
       if file.on_disk?
         send_file file.on_disk_path, disposition: 'inline'
       else
@@ -91,11 +94,11 @@ class Projects::WikisController < Projects::ApplicationController
   def markdown_preview
     text = params[:text]
 
-    ext = Gitlab::ReferenceExtractor.new(@project, current_user, current_user)
-    ext.analyze(text)
+    ext = Gitlab::ReferenceExtractor.new(@project, current_user)
+    ext.analyze(text, author: current_user)
 
     render json: {
-      body: view_context.markdown(text, pipeline: :wiki, project_wiki: @project_wiki),
+      body: view_context.markdown(text, pipeline: :wiki, project_wiki: @project_wiki, page_slug: params[:id]),
       references: {
         users: ext.users.map(&:username)
       }
@@ -121,5 +124,4 @@ class Projects::WikisController < Projects::ApplicationController
   def wiki_params
     params[:wiki].slice(:title, :content, :format, :message)
   end
-
 end

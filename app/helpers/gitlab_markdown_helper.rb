@@ -13,7 +13,7 @@ module GitlabMarkdownHelper
   def link_to_gfm(body, url, html_options = {})
     return "" if body.blank?
 
-    escaped_body = if body =~ /\A\<img/
+    escaped_body = if body.start_with?('<img')
                      body
                    else
                      escape_once(body)
@@ -49,8 +49,6 @@ module GitlabMarkdownHelper
     return "" unless text.present?
 
     context[:project] ||= @project
-
-    text = Banzai.pre_process(text, context)
 
     html = Banzai.render(text, context)
 
@@ -108,7 +106,7 @@ module GitlabMarkdownHelper
   def render_wiki_content(wiki_page)
     case wiki_page.format
     when :markdown
-      markdown(wiki_page.content, pipeline: :wiki, project_wiki: @project_wiki)
+      markdown(wiki_page.content, pipeline: :wiki, project_wiki: @project_wiki, page_slug: wiki_page.slug)
     when :asciidoc
       asciidoc(wiki_page.content)
     else
@@ -183,6 +181,19 @@ module GitlabMarkdownHelper
       "#{project.to_reference}#{entity.to_reference}"
     else
       ''
+    end
+  end
+
+  def markdown_toolbar_button(options = {})
+    data = options[:data].merge({ container: "body" })
+    content_tag :button,
+      type: "button",
+      class: "toolbar-btn js-md has-tooltip hidden-xs",
+      tabindex: -1,
+      data: data,
+      title: options[:title],
+      aria: { label: options[:title] } do
+      icon(options[:icon])
     end
   end
 end

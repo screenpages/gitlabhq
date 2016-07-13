@@ -1,14 +1,12 @@
 module WikiPages
   class BaseService < ::BaseService
-
     def hook_data(page, action)
       hook_data = {
         object_kind: page.class.name.underscore,
         user: current_user.hook_attrs,
         project: @project.hook_attrs,
-        object_attributes: page.hook_attrs,
-        # DEPRECATED
-        repository: @project.hook_attrs.slice(:name, :url, :description, :homepage)
+        wiki: @project.wiki.hook_attrs,
+        object_attributes: page.hook_attrs
       }
 
       page_url = Gitlab::UrlBuilder.build(page)

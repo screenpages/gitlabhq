@@ -25,13 +25,6 @@ Feature: Project Issues
   Scenario: I visit issue page
     Given I click link "Release 0.4"
     Then I should see issue "Release 0.4"
-    And I should see "1 of 2" in the sidebar
-
-  Scenario: I navigate between issues
-    Given I click link "Release 0.4"
-    Then I click link "Next" in the sidebar
-    Then I should see issue "Tweet control"
-    And I should see "2 of 2" in the sidebar
 
   @javascript
   Scenario: I filter by author
@@ -226,8 +219,8 @@ Feature: Project Issues
     When I click button "Unsubscribe"
     Then I should see that I am unsubscribed
 
+  @javascript
   Scenario: I submit new unassigned issue as guest
-    Given I logout
     Given public project "Community"
     When I visit project "Community" page
     And I visit project "Community" issues page

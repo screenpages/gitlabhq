@@ -122,13 +122,12 @@ describe Gitlab::Ci::Build::Artifacts::Metadata::Entry do
 
   describe 'empty path', path: '' do
     subject { |example| path(example) }
-    it { is_expected.to_not have_parent }
+    it { is_expected.not_to have_parent }
 
     describe '#children' do
       subject { |example| path(example).children }
       it { expect(subject.count).to eq 3 }
     end
-
   end
 
   describe 'path/dir_1/subdir/subfile', path: 'path/dir_1/subdir/subfile' do

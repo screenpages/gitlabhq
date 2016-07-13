@@ -12,6 +12,7 @@ if Gitlab::Metrics.enabled?
 
   Gitlab::Application.configure do |config|
     config.middleware.use(Gitlab::Metrics::RackMiddleware)
+    config.middleware.use(Gitlab::Middleware::RailsQueueDuration)
   end
 
   Sidekiq.configure_server do |config|
@@ -95,17 +96,26 @@ if Gitlab::Metrics.enabled?
       config.instrument_instance_methods(const)
     end
 
-    # Instruments all Banzai filters
-    Dir[Rails.root.join('lib', 'banzai', 'filter', '*.rb')].each do |file|
-      klass = File.basename(file, File.extname(file)).camelize
-      const = Banzai::Filter.const_get(klass)
+    # Instruments all Banzai filters and reference parsers
+    {
+      Filter: Rails.root.join('lib', 'banzai', 'filter', '*.rb'),
+      ReferenceParser: Rails.root.join('lib', 'banzai', 'reference_parser', '*.rb')
+    }.each do |const_name, path|
+      Dir[path].each do |file|
+        klass = File.basename(file, File.extname(file)).camelize
+        const = Banzai.const_get(const_name).const_get(klass)
 
-      config.instrument_methods(const)
-      config.instrument_instance_methods(const)
+        config.instrument_methods(const)
+        config.instrument_instance_methods(const)
+      end
     end
 
     config.instrument_methods(Banzai::Renderer)
     config.instrument_methods(Banzai::Querying)
+
+    config.instrument_instance_methods(Banzai::ObjectRenderer)
+    config.instrument_instance_methods(Banzai::Redactor)
+    config.instrument_methods(Banzai::NoteRenderer)
 
     [Issuable, Mentionable, Participable].each do |klass|
       config.instrument_instance_methods(klass)
@@ -120,9 +130,32 @@ if Gitlab::Metrics.enabled?
     config.instrument_instance_methods(Gitlab::GitAccessWiki)
 
     config.instrument_instance_methods(API::Helpers)
+
+    config.instrument_instance_methods(RepositoryCheck::SingleRepositoryWorker)
+
+    config.instrument_instance_methods(Rouge::Plugins::Redcarpet)
+    config.instrument_instance_methods(Rouge::Formatters::HTMLGitlab)
+
+    config.instrument_methods(Rinku)
   end
 
   GC::Profiler.enable
 
   Gitlab::Metrics::Sampler.new.start
+
+  module TrackNewRedisConnections
+    def connect(*args)
+      val = super
+
+      if current_transaction = Gitlab::Metrics::Transaction.current
+        current_transaction.increment(:new_redis_connections, 1)
+      end
+
+      val
+    end
+  end
+
+  class ::Redis::Client
+    prepend TrackNewRedisConnections
+  end
 end

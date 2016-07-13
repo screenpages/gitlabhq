@@ -1,12 +1,4 @@
 module ProjectsHelper
-  def remove_from_project_team_message(project, member)
-    if member.user
-      "You are going to remove #{member.user.name} from #{project.name} project team. Are you sure?"
-    else
-      "You are going to revoke the invitation for #{member.invite_email} to join #{project.name} project team. Are you sure?"
-    end
-  end
-
   def link_to_project(project)
     link_to [project.namespace.becomes(Namespace), project], title: h(project.name) do
       title = content_tag(:span, project.name, class: 'project-name')
@@ -23,7 +15,7 @@ module ProjectsHelper
   def link_to_member_avatar(author, opts = {})
     default_opts = { avatar: true, name: true, size: 16, author_class: 'author', title: ":name" }
     opts = default_opts.merge(opts)
-    image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt:'') if opts[:avatar]
+    image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt: '') if opts[:avatar]
   end
 
   def link_to_member(project, author, opts = {}, &block)
@@ -35,7 +27,7 @@ module ProjectsHelper
     author_html =  ""
 
     # Build avatar image tag
-    author_html << image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt:'') if opts[:avatar]
+    author_html << image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt: '') if opts[:avatar]
 
     # Build name span tag
     if opts[:by_username]
@@ -49,7 +41,7 @@ module ProjectsHelper
     author_html = author_html.html_safe
 
     if opts[:name]
-      link_to(author_html, user_path(author), class: "author_link #{"#{opts[:mobile_classes]}" if opts[:mobile_classes]}").html_safe
+      link_to(author_html, user_path(author), class: "author_link #{"#{opts[:extra_class]}" if opts[:extra_class]} #{"#{opts[:mobile_classes]}" if opts[:mobile_classes]}").html_safe
     else
       title = opts[:title].sub(":name", sanitize(author.name))
       link_to(author_html, user_path(author), class: "author_link has-tooltip", title: title, data: { container: 'body' } ).html_safe
@@ -115,14 +107,6 @@ module ProjectsHelper
     end
   end
 
-  def user_max_access_in_project(user_id, project)
-    level = project.team.max_member_access(user_id)
-
-    if level
-      Gitlab::Access.options_with_owner.key(level)
-    end
-  end
-
   def license_short_name(project)
     return 'LICENSE' if project.repository.license_key.nil?
 
@@ -154,6 +138,10 @@ module ProjectsHelper
 
     if Gitlab.config.registry.enabled && can?(current_user, :read_container_image, project)
       nav_tabs << :container_registry
+    end
+
+    if can?(current_user, :read_environment, project)
+      nav_tabs << :environments
     end
 
     if can?(current_user, :admin_project, project)
@@ -218,10 +206,14 @@ module ProjectsHelper
   end
 
   def default_clone_protocol
-    if !current_user || current_user.require_ssh_key?
-      gitlab_config.protocol
+    if allowed_protocols_present?
+      enabled_protocol
     else
-      "ssh"
+      if !current_user || current_user.require_ssh_key?
+        gitlab_config.protocol
+      else
+        'ssh'
+      end
     end
   end
 
@@ -286,10 +278,6 @@ module ProjectsHelper
     end
   end
 
-  def leave_project_message(project)
-    "Are you sure you want to leave \"#{project.name}\" project?"
-  end
-
   def new_readme_path
     ref = @repository.root_ref if @repository
     ref ||= 'master'
@@ -305,7 +293,11 @@ module ProjectsHelper
   end
 
   def last_push_event
-    if current_user
+    return unless current_user
+
+    if fork = current_user.fork_of(@project)
+      current_user.recent_push(fork.id)
+    else
       current_user.recent_push(@project.id)
     end
   end
@@ -343,9 +335,9 @@ module ProjectsHelper
     end
   end
 
-  def sanitize_repo_path(message)
+  def sanitize_repo_path(project, message)
     return '' unless message.present?
 
-    message.strip.gsub(Gitlab.config.gitlab_shell.repos_path.chomp('/'), "[REPOS PATH]")
+    message.strip.gsub(project.repository_storage_path.chomp('/'), "[REPOS PATH]")
   end
 end

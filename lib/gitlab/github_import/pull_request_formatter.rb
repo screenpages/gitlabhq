@@ -11,10 +11,10 @@ module Gitlab
           description: description,
           source_project: source_branch_project,
           source_branch: source_branch_name,
-          head_source_sha: source_branch_sha,
+          source_branch_sha: source_branch_sha,
           target_project: target_branch_project,
           target_branch: target_branch_name,
-          base_target_sha: target_branch_sha,
+          target_branch_sha: target_branch_sha,
           state: state,
           milestone: milestone,
           author_id: author_id,
@@ -22,6 +22,10 @@ module Gitlab
           created_at: raw_data.created_at,
           updated_at: updated_at
         }
+      end
+
+      def klass
+        MergeRequest
       end
 
       def number
@@ -79,10 +83,9 @@ module Gitlab
       end
 
       def state
-        @state ||= case true
-                   when raw_data.state == 'closed' && raw_data.merged_at.present?
+        @state ||= if raw_data.state == 'closed' && raw_data.merged_at.present?
                      'merged'
-                   when raw_data.state == 'closed'
+                   elsif raw_data.state == 'closed'
                      'closed'
                    else
                      'opened'

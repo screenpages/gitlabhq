@@ -14,7 +14,7 @@ describe Projects::IssuesController do
     it "returns index" do
       get :index, namespace_id: project.namespace.path, project_id: project.path
 
-      expect(response.status).to eq(200)
+      expect(response).to have_http_status(200)
     end
 
     it "return 301 if request path doesn't match project path" do
@@ -28,7 +28,7 @@ describe Projects::IssuesController do
       project.save
 
       get :index, namespace_id: project.namespace.path, project_id: project.path
-      expect(response.status).to eq(404)
+      expect(response).to have_http_status(404)
     end
 
     it "returns 404 when external issue tracker is enabled" do
@@ -36,7 +36,7 @@ describe Projects::IssuesController do
       allow(project).to receive(:default_issues_tracker?).and_return(false)
 
       get :index, namespace_id: project.namespace.path, project_id: project.path
-      expect(response.status).to eq(404)
+      expect(response).to have_http_status(404)
     end
   end
 
@@ -56,7 +56,7 @@ describe Projects::IssuesController do
           move_issue
 
           expect(response).to have_http_status :found
-          expect(another_project.issues).to_not be_empty
+          expect(another_project.issues).not_to be_empty
         end
       end
 
@@ -105,6 +105,15 @@ describe Projects::IssuesController do
         expect(assigns(:issues)).to eq [issue]
       end
 
+      it 'should not list confidential issues for project members with guest role' do
+        sign_in(member)
+        project.team << [member, :guest]
+
+        get_issues
+
+        expect(assigns(:issues)).to eq [issue]
+      end
+
       it 'should list confidential issues for author' do
         sign_in(author)
         get_issues
@@ -148,7 +157,7 @@ describe Projects::IssuesController do
 
     shared_examples_for 'restricted action' do |http_status|
       it 'returns 404 for guests' do
-        sign_out :user
+        sign_out(:user)
         go(id: unescaped_parameter_value.to_param)
 
         expect(response).to have_http_status :not_found
@@ -156,6 +165,14 @@ describe Projects::IssuesController do
 
       it 'returns 404 for non project members' do
         sign_in(non_member)
+        go(id: unescaped_parameter_value.to_param)
+
+        expect(response).to have_http_status :not_found
+      end
+
+      it 'returns 404 for project members with guest role' do
+        sign_in(member)
+        project.team << [member, :guest]
         go(id: unescaped_parameter_value.to_param)
 
         expect(response).to have_http_status :not_found
@@ -231,7 +248,7 @@ describe Projects::IssuesController do
       before { sign_in(user) }
       it "rejects a developer to destroy an issue" do
         delete :destroy, namespace_id: project.namespace.path, project_id: project.path, id: issue.iid
-        expect(response.status).to eq(404)
+        expect(response).to have_http_status(404)
       end
     end
 
@@ -245,9 +262,25 @@ describe Projects::IssuesController do
       it "deletes the issue" do
         delete :destroy, namespace_id: project.namespace.path, project_id: project.path, id: issue.iid
 
-        expect(response.status).to eq(302)
+        expect(response).to have_http_status(302)
         expect(controller).to set_flash[:notice].to(/The issue was successfully deleted\./).now
       end
+    end
+  end
+
+  describe 'POST #toggle_award_emoji' do
+    before do
+      sign_in(user)
+      project.team << [user, :developer]
+    end
+
+    it "toggles the award emoji" do
+      expect do
+        post(:toggle_award_emoji, namespace_id: project.namespace.path,
+                                  project_id: project.path, id: issue.iid, name: "thumbsup")
+      end.to change { issue.award_emoji.count }.by(1)
+
+      expect(response).to have_http_status(200)
     end
   end
 end

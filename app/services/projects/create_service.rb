@@ -56,14 +56,14 @@ module Projects
 
       after_create_actions if @project.persisted?
 
-      @project.add_import_job if @project.import?
-
+      if @project.errors.empty?
+        @project.add_import_job if @project.import?
+      else
+        fail(error: @project.errors.full_messages.join(', '))
+      end
       @project
     rescue => e
-      message = "Unable to save project: #{e.message}"
-      Rails.logger.error(message)
-      @project.errors.add(:base, message) if @project
-      @project
+      fail(error: e.message)
     end
 
     protected
@@ -80,16 +80,18 @@ module Projects
     def after_create_actions
       log_info("#{@project.owner.name} created a new project \"#{@project.name_with_namespace}\"")
 
-      @project.create_wiki if @project.wiki_enabled?
+      unless @project.gitlab_project_import?
+        @project.create_wiki if @project.wiki_enabled?
 
-      @project.build_missing_services
+        @project.build_missing_services
 
-      @project.create_labels
+        @project.create_labels
+      end
 
       event_service.create_project(@project, current_user)
       system_hook_service.execute_hooks_for(@project, :create)
 
-      unless @project.group
+      unless @project.group || @project.gitlab_project_import?
         @project.team << [current_user, :master, current_user]
       end
     end
@@ -102,6 +104,20 @@ module Projects
           raise 'Failed to create repository' unless @project.create_repository
         end
       end
+    end
+
+    def fail(error:)
+      message = "Unable to save project. Error: #{error}"
+      message << "Project ID: #{@project.id}" if @project && @project.id
+
+      Rails.logger.error(message)
+
+      if @project && @project.import?
+        @project.errors.add(:base, message)
+        @project.mark_import_as_failed(message)
+      end
+
+      @project
     end
   end
 end

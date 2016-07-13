@@ -1,9 +1,11 @@
 class Projects::NotesController < Projects::ApplicationController
+  include ToggleAwardEmoji
+
   # Authorize
   before_action :authorize_read_note!
   before_action :authorize_create_note!, only: [:create]
   before_action :authorize_admin_note!, only: [:update, :destroy]
-  before_action :find_current_user_notes, except: [:destroy, :delete_attachment, :award_toggle]
+  before_action :find_current_user_notes, only: [:index]
 
   def index
     current_fetched_at = Time.now.to_i
@@ -22,6 +24,10 @@ class Projects::NotesController < Projects::ApplicationController
   def create
     @note = Notes::CreateService.new(project, current_user, note_params).execute
 
+    if @note.is_a?(Note)
+      Banzai::NoteRenderer.render([@note], @project, current_user)
+    end
+
     respond_to do |format|
       format.json { render json: note_json(@note) }
       format.html { redirect_back_or_default }
@@ -30,6 +36,10 @@ class Projects::NotesController < Projects::ApplicationController
 
   def update
     @note = Notes::UpdateService.new(project, current_user, note_params).execute(note)
+
+    if @note.is_a?(Note)
+      Banzai::NoteRenderer.render([@note], @project, current_user)
+    end
 
     respond_to do |format|
       format.json { render json: note_json(@note) }
@@ -56,35 +66,12 @@ class Projects::NotesController < Projects::ApplicationController
     end
   end
 
-  def award_toggle
-    noteable = if note_params[:noteable_type] == "issue"
-                 project.issues.find(note_params[:noteable_id])
-               else
-                 project.merge_requests.find(note_params[:noteable_id])
-               end
-
-    data = {
-      author: current_user,
-      is_award: true,
-      note: note_params[:note].delete(":")
-    }
-
-    note = noteable.notes.find_by(data)
-
-    if note
-      note.destroy
-    else
-      Notes::CreateService.new(project, current_user, note_params).execute
-    end
-
-    render json: { ok: true }
-  end
-
   private
 
   def note
     @note ||= @project.notes.find(params[:id])
   end
+  alias_method :awardable, :note
 
   def note_to_html(note)
     render_to_string(
@@ -131,21 +118,47 @@ class Projects::NotesController < Projects::ApplicationController
   end
 
   def note_json(note)
-    if note.valid?
+    if note.is_a?(AwardEmoji)
       {
+        valid:  note.valid?,
+        award:  true,
+        id:     note.id,
+        name:   note.name
+      }
+    elsif note.valid?
+      Banzai::NoteRenderer.render([note], @project, current_user)
+
+      attrs = {
         valid: true,
         id: note.id,
         discussion_id: note.discussion_id,
         html: note_to_html(note),
-        award: note.is_award,
+        award: false,
         note: note.note,
         discussion_html: note_to_discussion_html(note),
         discussion_with_diff_html: note_to_discussion_with_diff_html(note)
       }
+
+      # The discussion_id is used to add the comment to the correct discussion
+      # element on the merge request page. Among other things, the discussion_id
+      # contains the sha of head commit of the merge request.
+      # When new commits are pushed into the merge request after the initial
+      # load of the merge request page, the discussion elements will still have
+      # the old discussion_ids, with the old head commit sha. The new comment,
+      # however, will have the new discussion_id with the new commit sha.
+      # To ensure that these new comments will still end up in the correct
+      # discussion element, we also send the original discussion_id, with the
+      # old commit sha, along, and fall back on this value when no discussion
+      # element with the new discussion_id could be found.
+      if note.new_diff_note? && note.position != note.original_position
+        attrs[:original_discussion_id] = note.original_discussion_id
+      end
+
+      attrs
     else
       {
         valid: false,
-        award: note.is_award,
+        award: false,
         errors: note.errors
       }
     end
@@ -158,7 +171,7 @@ class Projects::NotesController < Projects::ApplicationController
   def note_params
     params.require(:note).permit(
       :note, :noteable, :noteable_id, :noteable_type, :project_id,
-      :attachment, :line_code, :commit_id, :type
+      :attachment, :line_code, :commit_id, :type, :position
     )
   end
 

@@ -30,4 +30,8 @@ module AppearancesHelper
       render 'shared/logo.svg'
     end
   end
+
+  def navbar_icon(icon_name, size: 16)
+    render "shared/icons/#{icon_name}.svg", size: size
+  end
 end

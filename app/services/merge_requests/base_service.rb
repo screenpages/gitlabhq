@@ -1,6 +1,5 @@
 module MergeRequests
   class BaseService < ::IssuableBaseService
-
     def create_note(merge_request)
       SystemNoteService.change_status(merge_request, merge_request.target_project, current_user, merge_request.state, nil)
     end
@@ -55,12 +54,12 @@ module MergeRequests
 
     def each_merge_request(commit_status)
       merge_request_from(commit_status).each do |merge_request|
-        ci_commit = merge_request.ci_commit
+        pipeline = merge_request.pipeline
 
-        next unless ci_commit
-        next unless ci_commit.sha == commit_status.sha
+        next unless pipeline
+        next unless pipeline.sha == commit_status.sha
 
-        yield merge_request, ci_commit
+        yield merge_request, pipeline
       end
     end
   end

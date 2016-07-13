@@ -100,13 +100,43 @@ class @Notes
     $('.note .js-task-list-container').taskList('disable')
     $(document).off 'tasklist:changed', '.note .js-task-list-container'
 
-  keydownNoteText: (e) ->
-    $this = $(this)
-    if $this.val() is '' and e.which is 38 #aka the up key
-      myLastNote = $("li.note[data-author-id='#{gon.current_user_id}'][data-editable]:last")
-      if myLastNote.length
-        myLastNoteEditBtn = myLastNote.find('.js-note-edit')
-        myLastNoteEditBtn.trigger('click', [true, myLastNote])
+  keydownNoteText: (e) =>
+    return if isMetaKey e
+
+    $textarea = $(e.target)
+
+    # Edit previous note when UP arrow is hit
+    switch e.which
+      when 38
+        return unless $textarea.val() is ''
+
+        myLastNote = $("li.note[data-author-id='#{gon.current_user_id}'][data-editable]:last")
+        if myLastNote.length
+          myLastNoteEditBtn = myLastNote.find('.js-note-edit')
+          myLastNoteEditBtn.trigger('click', [true, myLastNote])
+
+      # Cancel creating diff note or editing any note when ESCAPE is hit
+      when 27
+        discussionNoteForm = $textarea.closest('.js-discussion-note-form')
+        if discussionNoteForm.length
+          if $textarea.val() isnt ''
+            return unless confirm('Are you sure you want to cancel creating this comment?')
+
+          @removeDiscussionNoteForm(discussionNoteForm)
+          return
+
+        editNote = $textarea.closest('.note')
+        if editNote.length
+          originalText = $textarea.closest('form').data('original-note')
+          newText = $textarea.val()
+          if originalText isnt newText
+            return unless confirm('Are you sure you want to cancel editing this comment?')
+
+          @removeNoteEditForm(editNote)
+
+
+  isMetaKey = (e) ->
+    (e.metaKey or e.ctrlKey or e.altKey or e.shiftKey)
 
   initRefresh: ->
     clearInterval(Notes.interval)
@@ -114,13 +144,15 @@ class @Notes
       @refresh()
     , @pollingInterval
 
-  refresh: ->
-    return if @refreshing is true
-    refreshing = true
+  refresh: =>
     if not document.hidden and document.URL.indexOf(@noteable_url) is 0
       @getContent()
 
   getContent: ->
+    return if @refreshing
+
+    @refreshing = true
+
     $.ajax
       url: @notes_url
       data: "last_fetched_at=" + @last_fetched_at
@@ -134,8 +166,8 @@ class @Notes
             @renderDiscussionNote(note)
           else
             @renderNote(note)
-      always: =>
-        @refreshing = false
+    .always () =>
+      @refreshing = false
 
   ###
   Increase @pollingInterval up to 120 seconds on every function call,
@@ -162,13 +194,14 @@ class @Notes
   renderNote: (note) ->
     unless note.valid
       if note.award
-        flash = new Flash('You have already used this award emoji!', 'alert')
+        flash = new Flash('You have already awarded this emoji!', 'alert')
         flash.pinTo('.header-content')
       return
 
     if note.award
-      awardsHandler.addAwardToEmojiBar(note.note)
-      awardsHandler.scrollToAwards()
+      votesBlock = $('.js-awards-block').eq 0
+      gl.awardsHandler.addAwardToEmojiBar votesBlock, note.name
+      gl.awardsHandler.scrollToAwards()
 
     # render note if it not present in loaded list
     # or skip if rendered
@@ -207,12 +240,16 @@ class @Notes
 
     @note_ids.push(note.id)
     form = $("#new-discussion-note-form-#{note.discussion_id}")
+    if note.original_discussion_id? and form.length is 0
+      form = $("#new-discussion-note-form-#{note.original_discussion_id}")
     row = form.closest("tr")
     note_html = $(note.html)
     note_html.syntaxHighlight()
 
     # is this the first note of discussion?
     discussionContainer = $(".notes[data-discussion-id='" + note.discussion_id + "']")
+    if note.original_discussion_id? and discussionContainer.length is 0
+      discussionContainer = $(".notes[data-discussion-id='" + note.original_discussion_id + "']")
     if discussionContainer.length is 0
       # insert the note and the reply button after the temp row
       row.after note.discussion_html
@@ -285,6 +322,7 @@ class @Notes
     form.addClass "js-main-target-form"
 
     form.find("#note_line_code").remove()
+    form.find("#note_position").remove()
     form.find("#note_type").remove()
 
   ###
@@ -302,10 +340,12 @@ class @Notes
 
     new Autosave textarea, [
       "Note"
-      form.find("#note_commit_id").val()
-      form.find("#note_line_code").val()
       form.find("#note_noteable_type").val()
       form.find("#note_noteable_id").val()
+      form.find("#note_commit_id").val()
+      form.find("#note_type").val()
+      form.find("#note_line_code").val()
+      form.find("#note_position").val()
     ]
 
   ###
@@ -329,7 +369,7 @@ class @Notes
     @renderDiscussionNote(note)
 
     # cleanup after successfully creating a diff/discussion note
-    @removeDiscussionNoteForm($("#new-discussion-note-form-#{note.discussion_id}"))
+    @removeDiscussionNoteForm($(xhr.target))
 
   ###
   Called in response to the edit note form being submitted
@@ -353,8 +393,7 @@ class @Notes
   Called in response to clicking the edit note link
 
   Replaces the note text with the note edit form
-  Adds a hidden div with the original content of the note to fill the edit note form with
-  if the user cancels
+  Adds a data attribute to the form with the original content of the note for cancellations
   ###
   showEditForm: (e, scrollTo, myLastNote) ->
     e.preventDefault()
@@ -370,6 +409,8 @@ class @Notes
     done = ($noteText) ->
       # Neat little trick to put the cursor at the end
       noteTextVal = $noteText.val()
+      # Store the original note text in a data attribute to retrieve if a user cancels edit.
+      form.find('form.edit-note').data 'original-note', noteTextVal
       $noteText.val('').val(noteTextVal);
 
     new GLForm form
@@ -392,14 +433,19 @@ class @Notes
   ###
   Called in response to clicking the edit note link
 
-  Hides edit form
+  Hides edit form and restores the original note text to the editor textarea.
   ###
-  cancelEdit: (e) ->
+  cancelEdit: (e) =>
     e.preventDefault()
-    note = $(this).closest(".note")
+    note = $(e.target).closest('.note')
+    @removeNoteEditForm(note)
+
+  removeNoteEditForm: (note) ->
+    form = note.find(".current-note-edit-form")
     note.removeClass "is-editting"
-    note.find(".current-note-edit-form")
-      .removeClass("current-note-edit-form")
+    form.removeClass("current-note-edit-form")
+    # Replace markdown textarea text with original note text.
+    form.find(".js-note-text").val(form.find('form.edit-note').data('original-note'))
 
   ###
   Called in response to deleting a note of any kind.
@@ -473,10 +519,12 @@ class @Notes
   setupDiscussionNoteForm: (dataHolder, form) =>
     # setup note target
     form.attr 'id', "new-discussion-note-form-#{dataHolder.data("discussionId")}"
+    form.attr "data-line-code", dataHolder.data("lineCode")
     form.find("#note_type").val dataHolder.data("noteType")
     form.find("#line_type").val dataHolder.data("lineType")
     form.find("#note_commit_id").val dataHolder.data("commitId")
     form.find("#note_line_code").val dataHolder.data("lineCode")
+    form.find("#note_position").val dataHolder.attr("data-position")
     form.find("#note_noteable_type").val dataHolder.data("noteableType")
     form.find("#note_noteable_id").val dataHolder.data("noteableId")
     form.find('.js-note-discard')

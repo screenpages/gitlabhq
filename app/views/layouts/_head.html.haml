@@ -30,9 +30,10 @@
 
   = javascript_include_tag "application"
 
-  = csrf_meta_tags
+  - if content_for?(:page_specific_javascripts)
+    = yield :page_specific_javascripts
 
-  = include_gon
+  = csrf_meta_tags
 
   - unless browser.safari?
     %meta{name: 'referrer', content: 'origin-when-cross-origin'}

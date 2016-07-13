@@ -2,7 +2,7 @@ FactoryGirl.define do
   # Project without repository
   #
   # Project does not have bare repository.
-  # Use this factory if you dont need repository in tests
+  # Use this factory if you don't need repository in tests
   factory :empty_project, class: 'Project' do
     sequence(:name) { |n| "project#{n}" }
     path { name.downcase.gsub(/\s/, '_') }
@@ -67,9 +67,6 @@ FactoryGirl.define do
           'new_issue_url' => 'http://redmine/projects/project_name_in_redmine/issues/new'
         }
       )
-
-      project.issues_tracker = 'redmine'
-      project.issues_tracker_id = 'project_name_in_redmine'
     end
   end
 
@@ -84,9 +81,6 @@ FactoryGirl.define do
           'new_issue_url' => 'http://jira.example/secure/CreateIssue.jspa'
         }
       )
-
-      project.issues_tracker = 'jira'
-      project.issues_tracker_id = 'project_name_in_jira'
     end
   end
 end

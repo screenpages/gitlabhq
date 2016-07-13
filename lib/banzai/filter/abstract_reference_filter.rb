@@ -18,10 +18,6 @@ module Banzai
         @object_sym ||= object_name.to_sym
       end
 
-      def self.data_reference
-        @data_reference ||= "data-#{object_name.dasherize}"
-      end
-
       def self.object_class_title
         @object_title ||= object_class.name.titleize
       end
@@ -43,10 +39,6 @@ module Banzai
         text.gsub(pattern) do |match|
           yield match, $~[object_sym].to_i, $~[:project], $~
         end
-      end
-
-      def self.referenced_by(node)
-        { object_sym => LazyReference.new(object_class, node.attr(data_reference)) }
       end
 
       def object_class
@@ -111,7 +103,7 @@ module Banzai
         ref_pattern = object_class.reference_pattern
         link_pattern = object_class.link_reference_pattern
 
-        each_node do |node|
+        nodes.each do |node|
           if text_node?(node) && ref_pattern
             replace_text_when_pattern_matches(node, ref_pattern) do |content|
               object_link_filter(content, ref_pattern)
@@ -168,11 +160,7 @@ module Banzai
             title = object_link_title(object)
             klass = reference_class(object_sym)
 
-            data  = data_attribute(
-              original:     link_text || match,
-              project:      project.id,
-              object_sym => object.id
-            )
+            data = data_attributes_for(link_text || match, project, object)
 
             if matches.names.include?("url") && matches[:url]
               url = matches[:url]
@@ -189,6 +177,14 @@ module Banzai
             match
           end
         end
+      end
+
+      def data_attributes_for(text, project, object)
+        data_attribute(
+          original:     text,
+          project:      project.id,
+          object_sym => object.id
+        )
       end
 
       def object_link_text_extras(object, matches)
@@ -214,6 +210,56 @@ module Banzai
         text
       end
 
+      # Returns a Hash containing all object references (e.g. issue IDs) per the
+      # project they belong to.
+      def references_per_project
+        @references_per_project ||= begin
+          refs = Hash.new { |hash, key| hash[key] = Set.new }
+
+          regex = Regexp.union(object_class.reference_pattern,
+                               object_class.link_reference_pattern)
+
+          nodes.each do |node|
+            node.to_html.scan(regex) do
+              project = $~[:project] || current_project_path
+              symbol = $~[object_sym]
+
+              refs[project] << symbol if object_class.reference_valid?(symbol)
+            end
+          end
+
+          refs
+        end
+      end
+
+      # Returns a Hash containing referenced projects grouped per their full
+      # path.
+      def projects_per_reference
+        @projects_per_reference ||= begin
+          hash = {}
+          refs = Set.new
+
+          references_per_project.each do |project_ref, _|
+            refs << project_ref
+          end
+
+          find_projects_for_paths(refs.to_a).each do |project|
+            hash[project.path_with_namespace] = project
+          end
+
+          hash
+        end
+      end
+
+      # Returns the projects for the given paths.
+      def find_projects_for_paths(paths)
+        Project.where_paths_in(paths).includes(:namespace)
+      end
+
+      def current_project_path
+        @current_project_path ||= project.path_with_namespace
+      end
+
       private
 
       def project_refs_cache
@@ -236,7 +282,9 @@ module Banzai
         if cache.key?(key)
           cache[key]
         else
-          cache[key] = yield
+          value = yield
+          cache[key] = value if key.present?
+          value
         end
       end
     end

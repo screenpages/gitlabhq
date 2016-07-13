@@ -12,8 +12,8 @@ describe Repository, models: true do
   end
   let(:merge_commit) do
     source_sha = repository.find_branch('feature').target
-    merge_commit_id = repository.merge(user, source_sha, 'master', commit_options)
-    repository.commit(merge_commit_id)
+    merge_commit_sha = repository.merge(user, source_sha, 'master', commit_options)
+    repository.commit(merge_commit_sha)
   end
 
   describe :branch_names_contains do
@@ -29,6 +29,47 @@ describe Repository, models: true do
 
     it { is_expected.to include('v1.1.0') }
     it { is_expected.not_to include('v1.0.0') }
+  end
+
+  describe 'tags_sorted_by' do
+    context 'name' do
+      subject { repository.tags_sorted_by('name').map(&:name) }
+
+      it { is_expected.to eq(['v1.1.0', 'v1.0.0']) }
+    end
+
+    context 'updated' do
+      let(:tag_a) { repository.find_tag('v1.0.0') }
+      let(:tag_b) { repository.find_tag('v1.1.0') }
+
+      context 'desc' do
+        subject { repository.tags_sorted_by('updated_desc').map(&:name) }
+
+        before do
+          double_first = double(committed_date: Time.now)
+          double_last = double(committed_date: Time.now - 1.second)
+
+          allow(repository).to receive(:commit).with(tag_a.target).and_return(double_first)
+          allow(repository).to receive(:commit).with(tag_b.target).and_return(double_last)
+        end
+
+        it { is_expected.to eq(['v1.0.0', 'v1.1.0']) }
+      end
+
+      context 'asc' do
+        subject { repository.tags_sorted_by('updated_asc').map(&:name) }
+
+        before do
+          double_first = double(committed_date: Time.now - 1.second)
+          double_last = double(committed_date: Time.now)
+
+          allow(repository).to receive(:commit).with(tag_a.target).and_return(double_last)
+          allow(repository).to receive(:commit).with(tag_b.target).and_return(double_first)
+        end
+
+        it { is_expected.to eq(['v1.1.0', 'v1.0.0']) }
+      end
+    end
   end
 
   describe :last_commit_for_path do
@@ -96,6 +137,12 @@ describe Repository, models: true do
 
     it 'regex-escapes the query string' do
       results = repository.search_files("test\\", 'master')
+
+      expect(results.first).not_to start_with('fatal:')
+    end
+
+    it 'properly handles an unmatched parenthesis' do
+      results = repository.search_files("test(", 'master')
 
       expect(results.first).not_to start_with('fatal:')
     end
@@ -261,14 +308,14 @@ describe Repository, models: true do
   describe :add_branch do
     context 'when pre hooks were successful' do
       it 'should run without errors' do
-        hook = double(trigger: true)
+        hook = double(trigger: [true, nil])
         expect(Gitlab::Git::Hook).to receive(:new).exactly(3).times.and_return(hook)
 
         expect { repository.add_branch(user, 'new_feature', 'master') }.not_to raise_error
       end
 
       it 'should create the branch' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(true)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([true, nil])
 
         branch = repository.add_branch(user, 'new_feature', 'master')
 
@@ -284,7 +331,7 @@ describe Repository, models: true do
 
     context 'when pre hooks failed' do
       it 'should get an error' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(false)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([false, ''])
 
         expect do
           repository.add_branch(user, 'new_feature', 'master')
@@ -292,7 +339,7 @@ describe Repository, models: true do
       end
 
       it 'should not create the branch' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(false)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([false, ''])
 
         expect do
           repository.add_branch(user, 'new_feature', 'master')
@@ -305,13 +352,13 @@ describe Repository, models: true do
   describe :rm_branch do
     context 'when pre hooks were successful' do
       it 'should run without errors' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(true)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([true, nil])
 
         expect { repository.rm_branch(user, 'feature') }.not_to raise_error
       end
 
       it 'should delete the branch' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(true)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([true, nil])
 
         expect { repository.rm_branch(user, 'feature') }.not_to raise_error
 
@@ -321,7 +368,7 @@ describe Repository, models: true do
 
     context 'when pre hooks failed' do
       it 'should get an error' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(false)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([false, ''])
 
         expect do
           repository.rm_branch(user, 'new_feature')
@@ -329,7 +376,7 @@ describe Repository, models: true do
       end
 
       it 'should not delete the branch' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(false)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([false, ''])
 
         expect do
           repository.rm_branch(user, 'feature')
@@ -361,7 +408,7 @@ describe Repository, models: true do
 
     context 'when pre hooks failed' do
       it 'should get an error' do
-        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return(false)
+        allow_any_instance_of(Gitlab::Git::Hook).to receive(:trigger).and_return([false, ''])
 
         expect do
           repository.commit_with_hooks(user, 'feature') { sample_commit.id }
@@ -437,7 +484,7 @@ describe Repository, models: true do
       end
 
       it 'does nothing' do
-        expect(repository.raw_repository).to_not receive(:autocrlf=).
+        expect(repository.raw_repository).not_to receive(:autocrlf=).
           with(:input)
 
         repository.update_autocrlf_option
@@ -484,8 +531,6 @@ describe Repository, models: true do
   describe '#expire_cache' do
     it 'expires all caches' do
       expect(repository).to receive(:expire_branch_cache)
-      expect(repository).to receive(:expire_branch_count_cache)
-      expect(repository).to receive(:expire_tag_count_cache)
 
       repository.expire_cache
     end
@@ -505,7 +550,7 @@ describe Repository, models: true do
 
     it 'does not expire the emptiness caches for a non-empty repository' do
       expect(repository).to receive(:empty?).and_return(false)
-      expect(repository).to_not receive(:expire_emptiness_caches)
+      expect(repository).not_to receive(:expire_emptiness_caches)
 
       repository.expire_cache
     end
@@ -668,7 +713,7 @@ describe Repository, models: true do
       end
 
       it 'does not flush caches that depend on repository data' do
-        expect(repository).to_not receive(:expire_cache)
+        expect(repository).not_to receive(:expire_cache)
 
         repository.before_delete
       end
@@ -810,7 +855,6 @@ describe Repository, models: true do
 
       repository.after_create
     end
-
   end
 
   describe "#copy_gitattributes" do
@@ -820,18 +864,6 @@ describe Repository, models: true do
 
     it 'returns false with an invalid ref' do
       expect(repository.copy_gitattributes('invalid')).to be_falsey
-    end
-  end
-
-  describe "#main_language" do
-    it 'shows the main language of the project' do
-      expect(repository.main_language).to eq("Ruby")
-    end
-
-    it 'returns nil when the repository is empty' do
-      allow(repository).to receive(:empty?).and_return(true)
-
-      expect(repository.main_language).to be_nil
     end
   end
 
@@ -945,7 +977,7 @@ describe Repository, models: true do
 
       expect(repository.avatar).to eq('logo.png')
 
-      expect(repository).to_not receive(:blob_at_branch)
+      expect(repository).not_to receive(:blob_at_branch)
       expect(repository.avatar).to eq('logo.png')
     end
   end
@@ -1020,12 +1052,14 @@ describe Repository, models: true do
     let(:cache) { repository.send(:cache) }
 
     it 'builds the caches if they do not already exist' do
+      cache_keys = repository.cache_keys + repository.cache_keys_for_branches_and_tags
+
       expect(cache).to receive(:exist?).
-        exactly(repository.cache_keys.length).
+        exactly(cache_keys.length).
         times.
         and_return(false)
 
-      repository.cache_keys.each do |key|
+      cache_keys.each do |key|
         expect(repository).to receive(key)
       end
 
@@ -1033,13 +1067,15 @@ describe Repository, models: true do
     end
 
     it 'does not build any caches that already exist' do
+      cache_keys = repository.cache_keys + repository.cache_keys_for_branches_and_tags
+
       expect(cache).to receive(:exist?).
-        exactly(repository.cache_keys.length).
+        exactly(cache_keys.length).
         times.
         and_return(true)
 
-      repository.cache_keys.each do |key|
-        expect(repository).to_not receive(key)
+      cache_keys.each do |key|
+        expect(repository).not_to receive(key)
       end
 
       repository.build_cache
@@ -1078,6 +1114,14 @@ describe Repository, models: true do
 
         described_class.clean_old_archives
       end
+    end
+  end
+
+  describe "#keep_around" do
+    it "stores a reference to the specified commit sha so it isn't garbage collected" do
+      repository.keep_around(sample_commit.id)
+
+      expect(repository.kept_around?(sample_commit.id)).to be_truthy
     end
   end
 

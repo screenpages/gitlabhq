@@ -16,8 +16,8 @@ class Dispatcher
     shortcut_handler = null
     switch page
       when 'projects:issues:index'
-        Issues.init()
         Issuable.init()
+        new IssuableBulkActions()
         shortcut_handler = new ShortcutsNavigation()
       when 'projects:issues:show'
         new Issue()
@@ -29,6 +29,7 @@ class Dispatcher
         new Todos()
       when 'projects:milestones:new', 'projects:milestones:edit'
         new ZenMode()
+        new DueDateSelect()
         new GLForm($('.milestone-form'))
       when 'groups:milestones:new'
         new ZenMode()
@@ -53,9 +54,13 @@ class Dispatcher
         new Diff()
         shortcut_handler = new ShortcutsIssuable(true)
         new ZenMode()
+        new MergedButtons()
+      when 'projects:merge_requests:commits', 'projects:merge_requests:builds'
+        new MergedButtons()
       when "projects:merge_requests:diffs"
         new Diff()
         new ZenMode()
+        new MergedButtons()
       when 'projects:merge_requests:index'
         shortcut_handler = new ShortcutsNavigation()
         Issuable.init()
@@ -68,18 +73,19 @@ class Dispatcher
         new Diff()
         new ZenMode()
         shortcut_handler = new ShortcutsNavigation()
-      when 'projects:commits:show'
-        shortcut_handler = new ShortcutsNavigation()
-      when 'projects:activity'
+      when 'projects:commits:show', 'projects:activity'
         shortcut_handler = new ShortcutsNavigation()
       when 'projects:show'
         shortcut_handler = new ShortcutsNavigation()
 
+        new NotificationsForm()
         new TreeView() if $('#tree-slider').length
       when 'groups:activity'
         new Activities()
       when 'groups:show'
         shortcut_handler = new ShortcutsNavigation()
+        new NotificationsForm()
+        new NotificationsDropdown()
       when 'groups:group_members:index'
         new GroupMembers()
         new UsersSelect()
@@ -96,8 +102,11 @@ class Dispatcher
       when 'projects:blob:show', 'projects:blame:show'
         new LineHighlighter()
         shortcut_handler = new ShortcutsNavigation()
+        new ShortcutsBlob true
       when 'projects:labels:new', 'projects:labels:edit'
         new Labels()
+      when 'projects:labels:index'
+        new LabelManager() if $('.prioritized-labels').length
       when 'projects:network:show'
         # Ensure we don't create a particular shortcut handler here. This is
         # already created, where the network graph is created.
@@ -118,24 +127,25 @@ class Dispatcher
           when 'groups'
             new UsersSelect()
           when 'projects'
-            new NamespaceSelect()
-      when 'dashboard'
+            new NamespaceSelects()
+      when 'dashboard', 'root'
         shortcut_handler = new ShortcutsDashboardNavigation()
       when 'profiles'
-        new Profile()
+        new NotificationsForm()
+        new NotificationsDropdown()
       when 'projects'
         new Project()
         new ProjectAvatar()
         switch path[1]
-          when 'compare'
-            shortcut_handler = new ShortcutsNavigation()
           when 'edit'
             shortcut_handler = new ShortcutsNavigation()
             new ProjectNew()
           when 'new'
             new ProjectNew()
           when 'show'
+            new ProjectNew()
             new ProjectShow()
+            new NotificationsDropdown()
           when 'wikis'
             new Wikis()
             shortcut_handler = new ShortcutsNavigation()
@@ -144,9 +154,9 @@ class Dispatcher
           when 'snippets'
             shortcut_handler = new ShortcutsNavigation()
             new ZenMode() if path[2] == 'show'
-          when 'labels', 'graphs'
-            shortcut_handler = new ShortcutsNavigation()
-          when 'project_members', 'deploy_keys', 'hooks', 'services', 'protected_branches'
+          when 'labels', 'graphs', 'compare', 'pipelines', 'forks', \
+          'milestones', 'project_members', 'deploy_keys', 'builds', \
+          'hooks', 'services', 'protected_branches'
             shortcut_handler = new ShortcutsNavigation()
 
     # If we haven't installed a custom shortcut handler, install the default one

@@ -1,9 +1,29 @@
+# encoding: utf-8
 require 'rails_helper'
 
 describe Blob do
   describe '.decorate' do
     it 'returns NilClass when given nil' do
       expect(described_class.decorate(nil)).to be_nil
+    end
+  end
+
+  describe '#data' do
+    context 'using a binary blob' do
+      it 'returns the data as-is' do
+        data = "\n\xFF\xB9\xC3"
+        blob = described_class.new(double(binary?: true, data: data))
+
+        expect(blob.data).to eq(data)
+      end
+    end
+
+    context 'using a text blob' do
+      it 'converts the data to UTF-8' do
+        blob = described_class.new(double(binary?: false, data: "\n\xFF\xB9\xC3"))
+
+        expect(blob.data).to eq("\n���")
+      end
     end
   end
 
@@ -30,6 +50,22 @@ describe Blob do
       git_blob = double(text?: true, language: double(name: 'SVG'))
 
       expect(described_class.decorate(git_blob)).to be_svg
+    end
+  end
+
+  describe '#video?' do
+    it 'is falsey with image extension' do
+      git_blob = Gitlab::Git::Blob.new(name: 'image.png')
+
+      expect(described_class.decorate(git_blob)).not_to be_video
+    end
+
+    UploaderHelper::VIDEO_EXT.each do |ext|
+      it "is truthy when extension is .#{ext}" do
+        git_blob = Gitlab::Git::Blob.new(name: "video.#{ext}")
+
+        expect(described_class.decorate(git_blob)).to be_video
+      end
     end
   end
 
@@ -76,6 +112,28 @@ describe Blob do
       blob = stubbed_blob
 
       expect(blob.to_partial_path).to eq 'download'
+    end
+  end
+
+  describe '#size_within_svg_limits?' do
+    let(:blob) { described_class.decorate(double(:blob)) }
+
+    it 'returns true when the blob size is smaller than the SVG limit' do
+      expect(blob).to receive(:size).and_return(42)
+
+      expect(blob.size_within_svg_limits?).to eq(true)
+    end
+
+    it 'returns true when the blob size is equal to the SVG limit' do
+      expect(blob).to receive(:size).and_return(Blob::MAXIMUM_SVG_SIZE)
+
+      expect(blob.size_within_svg_limits?).to eq(true)
+    end
+
+    it 'returns false when the blob size is larger than the SVG limit' do
+      expect(blob).to receive(:size).and_return(1.terabyte)
+
+      expect(blob.size_within_svg_limits?).to eq(false)
     end
   end
 end

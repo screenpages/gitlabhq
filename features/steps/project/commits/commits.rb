@@ -21,7 +21,15 @@ class Spinach::Features::ProjectCommits < Spinach::FeatureSteps
     expect(response_headers['Content-Type']).to have_content("application/atom+xml")
     expect(body).to have_selector("title", text: "#{@project.name}:master commits")
     expect(body).to have_selector("author email", text: commit.author_email)
-    expect(body).to have_selector("entry summary", text: commit.description[0..10])
+    expect(body).to have_selector("entry summary", text: commit.description[0..10].delete("\r"))
+  end
+
+  step 'I click on tag link' do
+    click_link "Tag"
+  end
+
+  step 'I see commit SHA pre-filled' do
+    expect(page).to have_selector("input[value='#{sample_commit.id}']")
   end
 
   step 'I click on commit link' do
@@ -34,15 +42,16 @@ class Spinach::Features::ProjectCommits < Spinach::FeatureSteps
   end
 
   step 'I fill compare fields with branches' do
-    fill_in 'from', with: 'feature'
-    fill_in 'to',   with: 'master'
+    select_using_dropdown('from', 'feature')
+    select_using_dropdown('to', 'master')
 
     click_button 'Compare'
   end
 
   step 'I fill compare fields with refs' do
-    fill_in "from", with: sample_commit.parent_id
-    fill_in "to",   with: sample_commit.id
+    select_using_dropdown('from', sample_commit.parent_id, true)
+    select_using_dropdown('to', sample_commit.id, true)
+
     click_button "Compare"
   end
 
@@ -89,8 +98,8 @@ class Spinach::Features::ProjectCommits < Spinach::FeatureSteps
   end
 
   step 'I fill compare fields with branches' do
-    fill_in 'from', with: 'master'
-    fill_in 'to',   with: 'feature'
+    select_using_dropdown('from', 'master')
+    select_using_dropdown('to', 'feature')
 
     click_button 'Compare'
   end
@@ -123,25 +132,6 @@ class Spinach::Features::ProjectCommits < Spinach::FeatureSteps
     expect(page).to have_content 'Committers'
     expect(page).to have_content 'Total commits'
     expect(page).to have_content 'Authors'
-  end
-
-  step 'I visit big commit page' do
-    # Create a temporary scope to ensure that the stub_const is removed after user
-    RSpec::Mocks.with_temporary_scope do
-      stub_const('Gitlab::Git::DiffCollection::DEFAULT_LIMITS', { max_lines: 1, max_files: 1 })
-      visit namespace_project_commit_path(@project.namespace, @project, sample_big_commit.id)
-    end
-  end
-
-  step 'I see big commit warning' do
-    expect(page).to have_content sample_big_commit.message
-    expect(page).to have_content "Too many changes"
-  end
-
-  step 'I see "Reload with full diff" link' do
-    link = find_link('Reload with full diff')
-    expect(link[:href]).to end_with('?force_show_diff=true')
-    expect(link[:href]).not_to include('.html')
   end
 
   step 'I visit a commit with an image that changed' do
@@ -192,5 +182,16 @@ class Spinach::Features::ProjectCommits < Spinach::FeatureSteps
   step 'I should see only "submodules" commits' do
     expect(page).to have_content "More submodules"
     expect(page).not_to have_content "Change some files"
+  end
+
+  def select_using_dropdown(dropdown_type, selection, is_commit = false)
+    dropdown = find(".js-compare-#{dropdown_type}-dropdown")
+    dropdown.find(".compare-dropdown-toggle").click
+    dropdown.fill_in("Filter by Git revision", with: selection)
+    if is_commit
+      dropdown.find('input[type="search"]').send_keys(:return)
+    else
+      find_link(selection, visible: true).click
+    end
   end
 end

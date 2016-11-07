@@ -64,7 +64,7 @@ class IssuableFinder
     if project?
       @project = Project.find(params[:project_id])
 
-      unless Ability.abilities.allowed?(current_user, :read_project, @project)
+      unless Ability.allowed?(current_user, :read_project, @project)
         @project = nil
       end
     else
@@ -109,7 +109,7 @@ class IssuableFinder
 
         scope.where(title: params[:milestone_title])
       else
-        nil
+        Milestone.none
       end
   end
 
@@ -124,15 +124,12 @@ class IssuableFinder
   def labels
     return @labels if defined?(@labels)
 
-    if labels? && !filter_by_no_label?
-      @labels = Label.where(title: label_names)
-
-      if projects
-        @labels = @labels.where(project: projects)
+    @labels =
+      if labels? && !filter_by_no_label?
+        LabelsFinder.new(current_user, project_ids: projects, title: label_names).execute
+      else
+        Label.none
       end
-    else
-      @labels = Label.none
-    end
   end
 
   def assignee?
@@ -183,17 +180,12 @@ class IssuableFinder
   end
 
   def by_state(items)
-    case params[:state]
-    when 'closed'
-      items.closed
-    when 'merged'
-      items.respond_to?(:merged) ? items.merged : items.closed
-    when 'all'
-      items
-    when 'opened'
-      items.opened
+    params[:state] ||= 'all'
+
+    if items.respond_to?(params[:state])
+      items.public_send(params[:state])
     else
-      raise 'You must specify default state'
+      items
     end
   end
 
@@ -216,7 +208,14 @@ class IssuableFinder
   end
 
   def by_search(items)
-    items = items.search(search) if search
+    if search
+      items =
+        if search =~ iid_pattern
+          items.where(iid: $~[:iid])
+        else
+          items.full_search(search)
+        end
+    end
 
     items
   end
@@ -272,8 +271,10 @@ class IssuableFinder
         items = items.without_label
       else
         items = items.with_label(label_names, params[:sort])
+
         if projects
-          items = items.where(labels: { project_id: projects })
+          label_ids = LabelsFinder.new(current_user, project_ids: projects).execute.select(:id)
+          items = items.where(labels: { id: label_ids })
         end
       end
     end

@@ -67,8 +67,10 @@ if Gitlab::Metrics.enabled?
       ['app', 'finders']                    => ['app', 'finders'],
       ['app', 'mailers', 'emails']          => ['app', 'mailers'],
       ['app', 'services', '**']             => ['app', 'services'],
+      ['lib', 'gitlab', 'conflicts']        => ['lib'],
       ['lib', 'gitlab', 'diff']             => ['lib'],
-      ['lib', 'gitlab', 'email', 'message'] => ['lib']
+      ['lib', 'gitlab', 'email', 'message'] => ['lib'],
+      ['lib', 'gitlab', 'checks']           => ['lib']
     }
 
     paths_to_instrument.each do |(path, prefix)|
@@ -136,7 +138,21 @@ if Gitlab::Metrics.enabled?
     config.instrument_instance_methods(Rouge::Plugins::Redcarpet)
     config.instrument_instance_methods(Rouge::Formatters::HTMLGitlab)
 
+    [:XML, :HTML].each do |namespace|
+      namespace_mod = Nokogiri.const_get(namespace)
+
+      config.instrument_methods(namespace_mod)
+      config.instrument_methods(namespace_mod::Document)
+    end
+
     config.instrument_methods(Rinku)
+    config.instrument_instance_methods(Repository)
+
+    config.instrument_methods(Gitlab::Highlight)
+    config.instrument_instance_methods(Gitlab::Highlight)
+
+    # This is a Rails scope so we have to instrument it manually.
+    config.instrument_method(Project, :visible_to_user)
   end
 
   GC::Profiler.enable

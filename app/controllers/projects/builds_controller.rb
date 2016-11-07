@@ -1,17 +1,19 @@
 class Projects::BuildsController < Projects::ApplicationController
   before_action :build, except: [:index, :cancel_all]
-  before_action :authorize_read_build!, except: [:cancel, :cancel_all, :retry]
+  before_action :authorize_read_build!, except: [:cancel, :cancel_all, :retry, :play]
   before_action :authorize_update_build!, except: [:index, :show, :status, :raw]
   layout 'project'
 
   def index
     @scope = params[:scope]
-    @all_builds = project.builds
+    @all_builds = project.builds.relevant
     @builds = @all_builds.order('created_at DESC')
     @builds =
       case @scope
+      when 'pending'
+        @builds.pending.reverse_order
       when 'running'
-        @builds.running_or_pending.reverse_order
+        @builds.running.reverse_order
       when 'finished'
         @builds.finished
       else
@@ -33,7 +35,11 @@ class Projects::BuildsController < Projects::ApplicationController
     respond_to do |format|
       format.html
       format.json do
-        render json: @build.to_json(methods: :trace_html)
+        render json: {
+          id: @build.id,
+          status: @build.status,
+          trace_html: @build.trace_html
+        }
       end
     end
   end
@@ -41,17 +47,24 @@ class Projects::BuildsController < Projects::ApplicationController
   def trace
     respond_to do |format|
       format.json do
-        render json: @build.trace_with_state(params[:state].presence).merge!(id: @build.id, status: @build.status)
+        state = params[:state].presence
+        render json: @build.trace_with_state(state: state).
+          merge!(id: @build.id, status: @build.status)
       end
     end
   end
 
   def retry
-    unless @build.retryable?
-      return render_404
-    end
+    return render_404 unless @build.retryable?
 
     build = Ci::Build.retry(@build, current_user)
+    redirect_to build_path(build)
+  end
+
+  def play
+    return render_404 unless @build.playable?
+
+    build = @build.play(current_user)
     redirect_to build_path(build)
   end
 
@@ -67,12 +80,12 @@ class Projects::BuildsController < Projects::ApplicationController
   def erase
     @build.erase(erased_by: current_user)
     redirect_to namespace_project_build_path(project.namespace, project, @build),
-                notice: "Build has been sucessfully erased!"
+                notice: "Build has been successfully erased!"
   end
 
   def raw
-    if @build.has_trace?
-      send_file @build.path_to_trace, type: 'text/plain; charset=utf-8', disposition: 'inline'
+    if @build.has_trace_file?
+      send_file @build.trace_file_path, type: 'text/plain; charset=utf-8', disposition: 'inline'
     else
       render_404
     end

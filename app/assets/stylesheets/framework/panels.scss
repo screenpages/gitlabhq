@@ -13,6 +13,11 @@
     .dropdown-menu-toggle {
       line-height: 20px;
     }
+
+    .badge {
+      margin-top: -2px;
+      margin-left: 5px;
+    }
   }
 
   .panel-body {
@@ -22,5 +27,10 @@
       margin: -$gl-padding;
       margin-top: $gl-padding;
     }
+  }
+
+  .panel-title {
+    font-size: inherit;
+    line-height: inherit;
   }
 }

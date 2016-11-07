@@ -6,28 +6,33 @@ class Project < ActiveRecord::Base
   include Gitlab::VisibilityLevel
   include Gitlab::CurrentSettings
   include AccessRequestable
+  include CacheMarkdownField
   include Referable
   include Sortable
   include AfterCommitQueue
   include CaseSensitivity
   include TokenAuthenticatable
+  include ProjectFeaturesCompatibility
 
   extend Gitlab::ConfigHelper
 
+  class BoardLimitExceeded < StandardError; end
+
+  NUMBER_OF_PERMITTED_BOARDS = 1
   UNKNOWN_IMPORT_URL = 'http://unknown.git'
+
+  cache_markdown_field :description, pipeline: :description
+
+  delegate :feature_available?, :builds_enabled?, :wiki_enabled?, :merge_requests_enabled?, to: :project_feature, allow_nil: true
 
   default_value_for :archived, false
   default_value_for :visibility_level, gitlab_config_features.visibility_level
-  default_value_for :issues_enabled, gitlab_config_features.issues
-  default_value_for :merge_requests_enabled, gitlab_config_features.merge_requests
-  default_value_for :builds_enabled, gitlab_config_features.builds
-  default_value_for :wiki_enabled, gitlab_config_features.wiki
-  default_value_for :snippets_enabled, gitlab_config_features.snippets
   default_value_for :container_registry_enabled, gitlab_config_features.container_registry
   default_value_for(:repository_storage) { current_application_settings.repository_storage }
   default_value_for(:shared_runners_enabled) { current_application_settings.shared_runners_enabled }
 
   after_create :ensure_dir_exist
+  after_create :create_project_feature, unless: :project_feature
   after_save :ensure_dir_exist, if: :namespace_id_changed?
 
   # set last_activity_at to the same as created_at
@@ -59,10 +64,11 @@ class Project < ActiveRecord::Base
 
   # Relations
   belongs_to :creator, foreign_key: 'creator_id', class_name: 'User'
-  belongs_to :group, -> { where(type: Group) }, foreign_key: 'namespace_id'
+  belongs_to :group, -> { where(type: 'Group') }, foreign_key: 'namespace_id'
   belongs_to :namespace
 
   has_one :last_event, -> {order 'events.created_at DESC'}, class_name: 'Event', foreign_key: 'project_id'
+  has_many :boards, before_add: :validate_board_limit, dependent: :destroy
 
   # Project services
   has_many :services
@@ -70,6 +76,7 @@ class Project < ActiveRecord::Base
   has_one :drone_ci_service, dependent: :destroy
   has_one :emails_on_push_service, dependent: :destroy
   has_one :builds_email_service, dependent: :destroy
+  has_one :pipelines_email_service, dependent: :destroy
   has_one :irker_service, dependent: :destroy
   has_one :pivotaltracker_service, dependent: :destroy
   has_one :hipchat_service, dependent: :destroy
@@ -100,7 +107,7 @@ class Project < ActiveRecord::Base
   # Merge requests from source project should be kept when source project was removed
   has_many :fork_merge_requests, foreign_key: 'source_project_id', class_name: MergeRequest
   has_many :issues,             dependent: :destroy
-  has_many :labels,             dependent: :destroy
+  has_many :labels,             dependent: :destroy, class_name: 'ProjectLabel'
   has_many :services,           dependent: :destroy
   has_many :events,             dependent: :destroy
   has_many :milestones,         dependent: :destroy
@@ -128,6 +135,7 @@ class Project < ActiveRecord::Base
   has_many :notification_settings, dependent: :destroy, as: :source
 
   has_one :import_data, dependent: :destroy, class_name: "ProjectImportData"
+  has_one :project_feature, dependent: :destroy
 
   has_many :commit_statuses, dependent: :destroy, class_name: 'CommitStatus', foreign_key: :gl_project_id
   has_many :pipelines, dependent: :destroy, class_name: 'Ci::Pipeline', foreign_key: :gl_project_id
@@ -140,9 +148,11 @@ class Project < ActiveRecord::Base
   has_many :deployments, dependent: :destroy
 
   accepts_nested_attributes_for :variables, allow_destroy: true
+  accepts_nested_attributes_for :project_feature
 
   delegate :name, to: :owner, allow_nil: true, prefix: true
   delegate :members, to: :team, prefix: true
+  delegate :add_user, to: :team
 
   # Validations
   validates :creator, presence: true, on: :create
@@ -157,8 +167,6 @@ class Project < ActiveRecord::Base
     length: { within: 0..255 },
     format: { with: Gitlab::Regex.project_path_regex,
               message: Gitlab::Regex.project_path_regex_message }
-  validates :issues_enabled, :merge_requests_enabled,
-            :wiki_enabled, inclusion: { in: [true, false] }
   validates :namespace, presence: true
   validates_uniqueness_of :name, scope: :namespace_id
   validates_uniqueness_of :path, scope: :namespace_id
@@ -194,8 +202,13 @@ class Project < ActiveRecord::Base
   scope :for_milestones, ->(ids) { joins(:milestones).where('milestones.id' => ids).distinct }
   scope :with_push, -> { joins(:events).where('events.action = ?', Event::PUSHED) }
 
+  scope :with_builds_enabled, -> { joins('LEFT JOIN project_features ON projects.id = project_features.project_id').where('project_features.builds_access_level IS NULL or project_features.builds_access_level > 0') }
+  scope :with_issues_enabled, -> { joins('LEFT JOIN project_features ON projects.id = project_features.project_id').where('project_features.issues_access_level IS NULL or project_features.issues_access_level > 0') }
+
   scope :active, -> { joins(:issues, :notes, :merge_requests).order('issues.created_at, notes.created_at, merge_requests.created_at DESC') }
   scope :abandoned, -> { where('projects.last_activity_at < ?', 6.months.ago) }
+
+  scope :excluding_project, ->(project) { where.not(id: project) }
 
   state_machine :import_status, initial: :none do
     event :import_start do
@@ -365,24 +378,26 @@ class Project < ActiveRecord::Base
       %r{(?<project>#{name_pattern}/#{name_pattern})}
     end
 
-    def trending(since = 1.month.ago)
-      # By counting in the JOIN we don't expose the GROUP BY to the outer query.
-      # This means that calls such as "any?" and "count" just return a number of
-      # the total count, instead of the counts grouped per project as a Hash.
-      join_body = "INNER JOIN (
-        SELECT project_id, COUNT(*) AS amount
-        FROM notes
-        WHERE created_at >= #{sanitize(since)}
-        GROUP BY project_id
-      ) join_note_counts ON projects.id = join_note_counts.project_id"
-
-      joins(join_body).reorder('join_note_counts.amount DESC')
+    def trending
+      joins('INNER JOIN trending_projects ON projects.id = trending_projects.project_id').
+        reorder('trending_projects.id ASC')
     end
 
-    # Deletes gitlab project export files older than 24 hours
-    def remove_gitlab_exports!
-      Gitlab::Popen.popen(%W(find #{Gitlab::ImportExport.storage_path} -not -path #{Gitlab::ImportExport.storage_path} -mmin +1440 -delete))
+    def cached_count
+      Rails.cache.fetch('total_project_count', expires_in: 5.minutes) do
+        Project.count
+      end
     end
+
+    def group_ids
+      joins(:namespace).where(namespaces: { type: 'Group' }).pluck(:namespace_id)
+    end
+  end
+
+  def lfs_enabled?
+    return namespace.lfs_enabled? if self[:lfs_enabled].nil?
+
+    self[:lfs_enabled] && Gitlab.config.lfs.enabled
   end
 
   def repository_storage_path
@@ -429,6 +444,17 @@ class Project < ActiveRecord::Base
     repository.commit(ref)
   end
 
+  # ref can't be HEAD, can only be branch/tag name or SHA
+  def latest_successful_builds_for(ref = default_branch)
+    latest_pipeline = pipelines.latest_successful_for(ref)
+
+    if latest_pipeline
+      latest_pipeline.builds.latest.with_artifacts
+    else
+      builds.none
+    end
+  end
+
   def merge_base_commit(first_commit_id, second_commit_id)
     sha = repository.merge_base(first_commit_id, second_commit_id)
     repository.commit(sha) if sha
@@ -440,7 +466,9 @@ class Project < ActiveRecord::Base
 
   def add_import_job
     if forked?
-      job_id = RepositoryForkWorker.perform_async(self.id, forked_from_project.path_with_namespace, self.namespace.path)
+      job_id = RepositoryForkWorker.perform_async(id, forked_from_project.repository_storage_path,
+                                                  forked_from_project.path_with_namespace,
+                                                  self.namespace.path)
     else
       job_id = RepositoryImportWorker.perform_async(self.id)
     end
@@ -453,8 +481,6 @@ class Project < ActiveRecord::Base
   end
 
   def reset_cache_and_import_attrs
-    update(import_error: nil)
-
     ProjectCacheWorker.perform_async(self.id)
 
     self.import_data.destroy if self.import_data
@@ -464,12 +490,12 @@ class Project < ActiveRecord::Base
     return super(value) unless Gitlab::UrlSanitizer.valid?(value)
 
     import_url = Gitlab::UrlSanitizer.new(value)
-    create_or_update_import_data(credentials: import_url.credentials)
     super(import_url.sanitized_url)
+    create_or_update_import_data(credentials: import_url.credentials)
   end
 
   def import_url
-    if import_data && super
+    if import_data && super.present?
       import_url = Gitlab::UrlSanitizer.new(super, credentials: import_data.credentials)
       import_url.full_url
     else
@@ -477,7 +503,13 @@ class Project < ActiveRecord::Base
     end
   end
 
+  def valid_import_url?
+    valid? || errors.messages[:import_url].nil?
+  end
+
   def create_or_update_import_data(data: nil, credentials: nil)
+    return unless import_url.present? && valid_import_url?
+
     project_import_data = import_data || build_import_data
     if data
       project_import_data.data ||= {}
@@ -567,7 +599,11 @@ class Project < ActiveRecord::Base
   end
 
   def to_param
-    path
+    if persisted? && errors.include?(:path)
+      path_was
+    else
+      path
+    end
   end
 
   def to_reference(_from_project = nil)
@@ -580,6 +616,16 @@ class Project < ActiveRecord::Base
 
   def web_url_without_protocol
     web_url.split('://')[1]
+  end
+
+  def new_issue_address(author)
+    # This feature is disabled for the time being.
+    return nil
+
+    if Gitlab::IncomingEmail.enabled? && author # rubocop:disable Lint/UnreachableCode
+      Gitlab::IncomingEmail.reply_address(
+        "#{path_with_namespace}+#{author.authentication_token}")
+    end
   end
 
   def build_commit_note(commit)
@@ -622,6 +668,10 @@ class Project < ActiveRecord::Base
     end
   end
 
+  def issue_reference_pattern
+    issues_tracker.reference_pattern
+  end
+
   def default_issues_tracker?
     !external_issue_tracker
   end
@@ -644,6 +694,26 @@ class Project < ActiveRecord::Base
     update_column(:has_external_issue_tracker, services.external_issue_trackers.any?)
   end
 
+  def has_wiki?
+    wiki_enabled? || has_external_wiki?
+  end
+
+  def external_wiki
+    if has_external_wiki.nil?
+      cache_has_external_wiki # Populate
+    end
+
+    if has_external_wiki
+      @external_wiki ||= services.external_wikis.first
+    else
+      nil
+    end
+  end
+
+  def cache_has_external_wiki
+    update_column(:has_external_wiki, services.external_wikis.any?)
+  end
+
   def build_missing_services
     services_templates = Service.where(template: true)
 
@@ -657,7 +727,7 @@ class Project < ActiveRecord::Base
 
         if template.nil?
           # If no template, we should create an instance. Ex `create_gitlab_ci_service`
-          self.send :"create_#{service_name}_service"
+          public_send("create_#{service_name}_service")
         else
           Service.create_from_template(self.id, template)
         end
@@ -667,10 +737,8 @@ class Project < ActiveRecord::Base
 
   def create_labels
     Label.templates.each do |label|
-      label = label.dup
-      label.template = nil
-      label.project_id = self.id
-      label.save
+      params = label.attributes.except('id', 'template', 'created_at', 'updated_at')
+      Labels::FindOrCreateService.new(nil, self, params).execute(skip_authorization: true)
     end
   end
 
@@ -768,11 +836,6 @@ class Project < ActiveRecord::Base
     end
   end
 
-  def update_merge_requests(oldrev, newrev, ref, user)
-    MergeRequests::RefreshService.new(self, user).
-      execute(oldrev, newrev, ref)
-  end
-
   def valid_repo?
     repository.exists?
   rescue
@@ -824,12 +887,14 @@ class Project < ActiveRecord::Base
 
   # Check if current branch name is marked as protected in the system
   def protected_branch?(branch_name)
+    return true if empty_repo? && default_branch_protected?
+
     @protected_branches ||= self.protected_branches.to_a
     ProtectedBranch.matching(branch_name, protected_branches: @protected_branches).present?
   end
 
-  def developers_can_push_to_protected_branch?(branch_name)
-    protected_branches.matching(branch_name).any?(&:developers_can_push)
+  def user_can_push_to_empty_repo?(user)
+    !default_branch_protected? || team.max_member_access(user.id) > Gitlab::Access::DEVELOPER
   end
 
   def forked?
@@ -845,9 +910,13 @@ class Project < ActiveRecord::Base
     old_path_with_namespace = File.join(namespace_dir, path_was)
     new_path_with_namespace = File.join(namespace_dir, path)
 
+    Rails.logger.error "Attempting to rename #{old_path_with_namespace} -> #{new_path_with_namespace}"
+
     expire_caches_before_rename(old_path_with_namespace)
 
     if has_container_registry_tags?
+      Rails.logger.error "Project #{old_path_with_namespace} cannot be renamed because container registry tags are present"
+
       # we currently doesn't support renaming repository if it contains tags in container registry
       raise Exception.new('Project cannot be renamed, because tags are present in its container registry')
     end
@@ -866,16 +935,21 @@ class Project < ActiveRecord::Base
         SystemHooksService.new.execute_hooks_for(self, :rename)
 
         @repository = nil
-      rescue
+      rescue => e
+        Rails.logger.error "Exception renaming #{old_path_with_namespace} -> #{new_path_with_namespace}: #{e}"
         # Returning false does not rollback after_* transaction but gives
         # us information about failing some of tasks
         false
       end
     else
+      Rails.logger.error "Repository could not be renamed: #{old_path_with_namespace} -> #{new_path_with_namespace}"
+
       # if we cannot move namespace directory we should rollback
       # db changes in order to prevent out of sync between db and fs
       raise Exception.new('repository cannot be renamed')
     end
+
+    Gitlab::AppLogger.info "Project was renamed: #{old_path_with_namespace} -> #{new_path_with_namespace}"
 
     Gitlab::UploadsTransfer.new.rename_project(path_was, path, namespace.path)
   end
@@ -968,6 +1042,7 @@ class Project < ActiveRecord::Base
                                         "refs/heads/#{branch}",
                                         force: true)
     repository.copy_gitattributes(branch)
+    repository.expire_avatar_cache(branch)
     reload_default_branch
   end
 
@@ -1028,16 +1103,21 @@ class Project < ActiveRecord::Base
     !namespace.share_with_group_lock
   end
 
-  def pipeline(sha, ref)
+  def pipeline_for(ref, sha = nil)
+    sha ||= commit(ref).try(:sha)
+
+    return unless sha
+
     pipelines.order(id: :desc).find_by(sha: sha, ref: ref)
   end
 
-  def ensure_pipeline(sha, ref)
-    pipeline(sha, ref) || pipelines.create(sha: sha, ref: ref)
+  def ensure_pipeline(ref, sha, current_user = nil)
+    pipeline_for(ref, sha) ||
+      pipelines.create(sha: sha, ref: ref, user: current_user)
   end
 
   def enable_ci
-    self.builds_enabled = true
+    project_feature.update_attribute(:builds_access_level, ProjectFeature::ENABLED)
   end
 
   def any_runners?(&block)
@@ -1050,12 +1130,6 @@ class Project < ActiveRecord::Base
 
   def valid_runners_token?(token)
     self.runners_token && ActiveSupport::SecurityUtils.variable_size_secure_compare(token, self.runners_token)
-  end
-
-  # TODO (ayufan): For now we use runners_token (backward compatibility)
-  # In 8.4 every build will have its own individual token valid for time of build
-  def valid_build_token?(token)
-    self.builds_enabled? && self.runners_token && ActiveSupport::SecurityUtils.variable_size_secure_compare(token, self.runners_token)
   end
 
   def build_coverage_enabled?
@@ -1103,13 +1177,6 @@ class Project < ActiveRecord::Base
     @wiki ||= ProjectWiki.new(self, self.owner)
   end
 
-  def schedule_delete!(user_id, params)
-    # Queue this task for after the commit, so once we mark pending_delete it will run
-    run_after_commit { ProjectDestroyWorker.perform_async(id, user_id, params) }
-
-    update_attribute(:pending_delete, true)
-  end
-
   def running_or_pending_build_count(force: false)
     Rails.cache.fetch(['projects', id, 'running_or_pending_build_count'], force: force) do
       builds.running_or_pending.count(:all)
@@ -1153,5 +1220,126 @@ class Project < ActiveRecord::Base
 
   def ensure_dir_exist
     gitlab_shell.add_namespace(repository_storage_path, namespace.path)
+  end
+
+  def predefined_variables
+    [
+      { key: 'CI_PROJECT_ID', value: id.to_s, public: true },
+      { key: 'CI_PROJECT_NAME', value: path, public: true },
+      { key: 'CI_PROJECT_PATH', value: path_with_namespace, public: true },
+      { key: 'CI_PROJECT_NAMESPACE', value: namespace.path, public: true },
+      { key: 'CI_PROJECT_URL', value: web_url, public: true }
+    ]
+  end
+
+  def container_registry_variables
+    return [] unless Gitlab.config.registry.enabled
+
+    variables = [
+      { key: 'CI_REGISTRY', value: Gitlab.config.registry.host_port, public: true }
+    ]
+
+    if container_registry_enabled?
+      variables << { key: 'CI_REGISTRY_IMAGE', value: container_registry_repository_url, public: true }
+    end
+
+    variables
+  end
+
+  def secret_variables
+    variables.map do |variable|
+      { key: variable.key, value: variable.value, public: false }
+    end
+  end
+
+  # Checks if `user` is authorized for this project, with at least the
+  # `min_access_level` (if given).
+  #
+  # If you change the logic of this method, please also update `User#authorized_projects`
+  def authorized_for_user?(user, min_access_level = nil)
+    return false unless user
+
+    return true if personal? && namespace_id == user.namespace_id
+
+    authorized_for_user_by_group?(user, min_access_level) ||
+      authorized_for_user_by_members?(user, min_access_level) ||
+      authorized_for_user_by_shared_projects?(user, min_access_level)
+  end
+
+  def append_or_update_attribute(name, value)
+    old_values = public_send(name.to_s)
+
+    if Project.reflect_on_association(name).try(:macro) == :has_many && old_values.any?
+      update_attribute(name, old_values + value)
+    else
+      update_attribute(name, value)
+    end
+  end
+
+  def pushes_since_gc
+    Gitlab::Redis.with { |redis| redis.get(pushes_since_gc_redis_key).to_i }
+  end
+
+  def increment_pushes_since_gc
+    Gitlab::Redis.with { |redis| redis.incr(pushes_since_gc_redis_key) }
+  end
+
+  def reset_pushes_since_gc
+    Gitlab::Redis.with { |redis| redis.del(pushes_since_gc_redis_key) }
+  end
+
+  def environments_for(ref, commit, with_tags: false)
+    environment_ids = deployments.group(:environment_id).
+      select(:environment_id)
+
+    environment_ids =
+      if with_tags
+        environment_ids.where('ref=? OR tag IS TRUE', ref)
+      else
+        environment_ids.where(ref: ref)
+      end
+
+    environments.available.where(id: environment_ids).select do |environment|
+      environment.includes_commit?(commit)
+    end
+  end
+
+  private
+
+  def pushes_since_gc_redis_key
+    "projects/#{id}/pushes_since_gc"
+  end
+
+  def default_branch_protected?
+    current_application_settings.default_branch_protection == Gitlab::Access::PROTECTION_FULL ||
+      current_application_settings.default_branch_protection == Gitlab::Access::PROTECTION_DEV_CAN_MERGE
+  end
+
+  def authorized_for_user_by_group?(user, min_access_level)
+    member = user.group_members.find_by(source_id: group)
+
+    member && (!min_access_level || member.access_level >= min_access_level)
+  end
+
+  def authorized_for_user_by_members?(user, min_access_level)
+    member = members.find_by(user_id: user)
+
+    member && (!min_access_level || member.access_level >= min_access_level)
+  end
+
+  def authorized_for_user_by_shared_projects?(user, min_access_level)
+    shared_projects = user.group_members.joins(group: :shared_projects).
+      where(project_group_links: { project_id: self })
+
+    if min_access_level
+      members_scope = { access_level: Gitlab::Access.values.select { |access| access >= min_access_level } }
+      shared_projects = shared_projects.where(members: members_scope)
+    end
+
+    shared_projects.any?
+  end
+
+  def validate_board_limit(board)
+    raise BoardLimitExceeded, 'Number of permitted boards exceeded' if boards.size >= NUMBER_OF_PERMITTED_BOARDS
   end
 end

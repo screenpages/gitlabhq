@@ -135,11 +135,11 @@ describe Projects::ProjectMembersController do
     context 'when member is not found' do
       before { sign_in(user) }
 
-      it 'returns 403' do
+      it 'returns 404' do
         delete :leave, namespace_id: project.namespace,
                        project_id: project
 
-        expect(response).to have_http_status(403)
+        expect(response).to have_http_status(404)
       end
     end
 
@@ -268,6 +268,44 @@ describe Projects::ProjectMembersController do
           )
           expect(project.users).to include team_requester
         end
+      end
+    end
+  end
+
+  describe 'POST create' do
+    let(:project) { create(:project) }
+    let(:user) { create(:user) }
+    let(:stranger) { create(:user) }
+
+    context 'when creating owner' do
+      before do
+        project.team << [user, :master]
+        sign_in(user)
+      end
+
+      it 'does not create a member' do
+        expect do
+          post :create, user_ids: stranger.id,
+                        namespace_id: project.namespace,
+                        access_level: Member::OWNER,
+                        project_id: project
+        end.to change { project.members.count }.by(0)
+      end
+    end
+
+    context 'when create master' do
+      before do
+        project.team << [user, :master]
+        sign_in(user)
+      end
+
+      it 'creates a member' do
+        expect do
+          post :create, user_ids: stranger.id,
+                        namespace_id: project.namespace,
+                        access_level: Member::MASTER,
+                        project_id: project
+        end.to change { project.members.count }.by(1)
       end
     end
   end

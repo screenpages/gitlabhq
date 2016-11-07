@@ -3,6 +3,7 @@ require 'socket'
 
 class IrkerWorker
   include Sidekiq::Worker
+  include DedicatedSidekiqQueue
 
   def perform(project_id, chans, colors, push_data, settings)
     project = Project.find(project_id)
@@ -141,8 +142,10 @@ class IrkerWorker
   end
 
   def files_count(commit)
-    files = "#{commit.diffs.real_size} file"
-    files += 's' if commit.diffs.count > 1
+    diffs = commit.raw_diffs(deltas_only: true)
+
+    files = "#{diffs.real_size} file"
+    files += 's' if diffs.size > 1
     files
   end
 

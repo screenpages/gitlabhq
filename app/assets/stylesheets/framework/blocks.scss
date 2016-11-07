@@ -16,6 +16,14 @@
   font-weight: normal;
   font-size: 16px;
   line-height: 36px;
+
+  &.diff-collapsed {
+    padding: 5px;
+
+    .click-to-expand {
+      cursor: pointer;
+    }
+  }
 }
 
 .row-content-block {
@@ -120,27 +128,19 @@
   position: relative;
 
   .avatar-holder {
-    margin-bottom: 16px;
-
     .avatar, .identicon {
       margin: 0 auto;
       float: none;
     }
 
     .identicon {
-      @include border-radius(50%);
+      border-radius: 50%;
     }
   }
 
   .cover-title {
     color: $gl-header-color;
-    margin: 0;
-    font-size: 24px;
-    font-weight: normal;
-    margin-bottom: 10px;
-    color: #4c4e54;
     font-size: 23px;
-    line-height: 1.1;
 
     h1 {
       color: $gl-gray-dark;
@@ -205,6 +205,10 @@
     }
   }
 
+  &.user-cover-block {
+    padding: 24px 0 0;
+  }
+
   .group-info {
 
     h1 {
@@ -223,7 +227,9 @@
 .nav-block {
   .controls {
     float: right;
-    margin-top: 11px;
+    margin-top: 8px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid $border-color;
   }
 }
 
@@ -237,6 +243,10 @@
 
   > .controls {
     float: right;
+  }
+
+  .new-branch {
+    margin-top: 3px;
   }
 }
 

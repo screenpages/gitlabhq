@@ -23,15 +23,24 @@ module AuthenticatesWithTwoFactor
   #
   # Returns nil
   def prompt_for_two_factor(user)
+    return locked_user_redirect(user) if user.access_locked?
+
     session[:otp_user_id] = user.id
     setup_u2f_authentication(user)
     render 'devise/sessions/two_factor'
   end
 
+  def locked_user_redirect(user)
+    flash.now[:alert] = 'Invalid Login or password'
+    render 'devise/sessions/new'
+  end
+
   def authenticate_with_two_factor
     user = self.resource = find_user
 
-    if user_params[:otp_attempt].present? && session[:otp_user_id]
+    if user.access_locked?
+      locked_user_redirect(user)
+    elsif user_params[:otp_attempt].present? && session[:otp_user_id]
       authenticate_with_two_factor_via_otp(user)
     elsif user_params[:device_response].present? && session[:otp_user_id]
       authenticate_with_two_factor_via_u2f(user)
@@ -50,20 +59,23 @@ module AuthenticatesWithTwoFactor
       remember_me(user) if user_params[:remember_me] == '1'
       sign_in(user)
     else
+      user.increment_failed_attempts!
       flash.now[:alert] = 'Invalid two-factor code.'
-      render :two_factor
+      prompt_for_two_factor(user)
     end
   end
 
   # Authenticate using the response from a U2F (universal 2nd factor) device
   def authenticate_with_two_factor_via_u2f(user)
-    if U2fRegistration.authenticate(user, u2f_app_id, user_params[:device_response], session[:challenges])
+    if U2fRegistration.authenticate(user, u2f_app_id, user_params[:device_response], session[:challenge])
       # Remove any lingering user data from login
       session.delete(:otp_user_id)
       session.delete(:challenges)
 
+      remember_me(user) if user_params[:remember_me] == '1'
       sign_in(user)
     else
+      user.increment_failed_attempts!
       flash.now[:alert] = 'Authentication via U2F device failed.'
       prompt_for_two_factor(user)
     end
@@ -77,11 +89,9 @@ module AuthenticatesWithTwoFactor
 
     if key_handles.present?
       sign_requests = u2f.authentication_requests(key_handles)
-      challenges = sign_requests.map(&:challenge)
-      session[:challenges] = challenges
-      gon.push(u2f: { challenges: challenges, app_id: u2f_app_id,
-                      sign_requests: sign_requests,
-                      browser_supports_u2f: browser_supports_u2f? })
+      session[:challenge] ||= u2f.challenge
+      gon.push(u2f: { challenge: session[:challenge], app_id: u2f_app_id,
+                      sign_requests: sign_requests })
     end
   end
 end

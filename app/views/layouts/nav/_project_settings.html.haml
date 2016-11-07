@@ -26,7 +26,7 @@
       %span
         Protected Branches
 
-  - if @project.builds_enabled?
+  - if @project.feature_available?(:builds, current_user)
     = nav_link(controller: :runners) do
       = link_to namespace_project_runners_path(@project.namespace, @project), title: 'Runners' do
         %span
@@ -39,7 +39,7 @@
       = link_to namespace_project_triggers_path(@project.namespace, @project), title: 'Triggers' do
         %span
           Triggers
-    = nav_link(controller: :badges) do
-      = link_to namespace_project_badges_path(@project.namespace, @project), title: 'Badges' do
+    = nav_link(controller: :pipelines_settings) do
+      = link_to namespace_project_pipelines_settings_path(@project.namespace, @project), title: 'CI/CD Pipelines' do
         %span
-          Badges
+          CI/CD Pipelines

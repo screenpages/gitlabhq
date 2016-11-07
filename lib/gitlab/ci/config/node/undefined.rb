@@ -3,24 +3,32 @@ module Gitlab
     class Config
       module Node
         ##
-        # This class represents an undefined entry node.
+        # This class represents an undefined node.
         #
-        # It takes original entry class as configuration and returns default
-        # value of original entry as self value.
-        #
+        # Implements the Null Object pattern.
         #
         class Undefined < Entry
-          include Validatable
-
-          validations do
-            validates :config, type: Class
+          def initialize(*)
+            super(nil)
           end
 
           def value
-            @config.default
+            nil
           end
 
-          def defined?
+          def valid?
+            true
+          end
+
+          def errors
+            []
+          end
+
+          def specified?
+            false
+          end
+
+          def relevant?
             false
           end
         end

@@ -1,26 +1,35 @@
 module Ci
   class Build < CommitStatus
+    include TokenAuthenticatable
+    include AfterCommitQueue
+
     belongs_to :runner, class_name: 'Ci::Runner'
     belongs_to :trigger_request, class_name: 'Ci::TriggerRequest'
     belongs_to :erased_by, class_name: 'User'
 
     serialize :options
+    serialize :yaml_variables
 
     validates :coverage, numericality: true, allow_blank: true
     validates_presence_of :ref
 
     scope :unstarted, ->() { where(runner_id: nil) }
     scope :ignore_failures, ->() { where(allow_failure: false) }
-    scope :with_artifacts, ->() { where.not(artifacts_file: nil) }
+    scope :with_artifacts, ->() { where.not(artifacts_file: [nil, '']) }
+    scope :with_artifacts_not_expired, ->() { with_artifacts.where('artifacts_expire_at IS NULL OR artifacts_expire_at > ?', Time.now) }
     scope :with_expired_artifacts, ->() { with_artifacts.where('artifacts_expire_at < ?', Time.now) }
     scope :last_month, ->() { where('created_at > ?', Date.today - 1.month) }
+    scope :manual_actions, ->() { where(when: :manual).relevant }
 
     mount_uploader :artifacts_file, ArtifactUploader
     mount_uploader :artifacts_metadata, ArtifactUploader
 
     acts_as_taggable
 
+    add_authentication_token_field :token
+
     before_save :update_artifacts_size, if: :artifacts_file_changed?
+    before_save :ensure_token
     before_destroy { project }
 
     after_create :execute_hooks
@@ -35,55 +44,76 @@ module Ci
         new_build.status = 'pending'
         new_build.runner_id = nil
         new_build.trigger_request_id = nil
+        new_build.token = nil
         new_build.save
       end
 
       def retry(build, user = nil)
-        new_build = Ci::Build.new(status: 'pending')
-        new_build.ref = build.ref
-        new_build.tag = build.tag
-        new_build.options = build.options
-        new_build.commands = build.commands
-        new_build.tag_list = build.tag_list
-        new_build.project = build.project
-        new_build.pipeline = build.pipeline
-        new_build.name = build.name
-        new_build.allow_failure = build.allow_failure
-        new_build.stage = build.stage
-        new_build.stage_idx = build.stage_idx
-        new_build.trigger_request = build.trigger_request
-        new_build.user = user
-        new_build.save
+        new_build = Ci::Build.create(
+          ref: build.ref,
+          tag: build.tag,
+          options: build.options,
+          commands: build.commands,
+          tag_list: build.tag_list,
+          project: build.project,
+          pipeline: build.pipeline,
+          name: build.name,
+          allow_failure: build.allow_failure,
+          stage: build.stage,
+          stage_idx: build.stage_idx,
+          trigger_request: build.trigger_request,
+          yaml_variables: build.yaml_variables,
+          when: build.when,
+          user: user,
+          environment: build.environment,
+          status_event: 'enqueue'
+        )
         MergeRequests::AddTodoWhenBuildFailsService.new(build.project, nil).close(new_build)
+        build.pipeline.mark_as_processable_after_stage(build.stage_idx)
         new_build
       end
     end
 
-    state_machine :status, initial: :pending do
+    state_machine :status do
       after_transition pending: :running do |build|
-        build.execute_hooks
-      end
-
-      # We use around_transition to create builds for next stage as soon as possible, before the `after_*` is executed
-      around_transition any => [:success, :failed, :canceled] do |build, block|
-        block.call
-        build.pipeline.create_next_builds(build) if build.pipeline
+        build.run_after_commit do
+          BuildHooksWorker.perform_async(id)
+        end
       end
 
       after_transition any => [:success, :failed, :canceled] do |build|
-        build.update_coverage
-        build.execute_hooks
+        build.run_after_commit do
+          BuildFinishedWorker.perform_async(id)
+        end
       end
 
       after_transition any => [:success] do |build|
-        if build.environment.present?
-          service = CreateDeploymentService.new(build.project, build.user,
-                                                environment: build.environment,
-                                                sha: build.sha,
-                                                ref: build.ref,
-                                                tag: build.tag)
-          service.execute(build)
+        build.run_after_commit do
+          BuildSuccessWorker.perform_async(id)
         end
+      end
+    end
+
+    def manual?
+      self.when == 'manual'
+    end
+
+    def other_actions
+      pipeline.manual_actions.where.not(name: name)
+    end
+
+    def playable?
+      project.builds_enabled? && commands.present? && manual? && skipped?
+    end
+
+    def play(current_user = nil)
+      # Try to queue a current build
+      if self.enqueue
+        self.update(user: current_user)
+        self
+      else
+        # Otherwise we need to create a duplicate
+        Ci::Build.retry(self, current_user)
       end
     end
 
@@ -103,13 +133,17 @@ module Ci
       latest_builds.where('stage_idx < ?', stage_idx)
     end
 
-    def trace_html
-      trace_with_state[:html] || ''
+    def trace_html(**args)
+      trace_with_state(**args)[:html] || ''
     end
 
-    def trace_with_state(state = nil)
-      trace_with_state = Ci::Ansi2html::convert(trace, state) if trace.present?
-      trace_with_state || {}
+    def trace_with_state(state: nil, last_lines: nil)
+      trace_ansi = trace(last_lines: last_lines)
+      if trace_ansi.present?
+        Ci::Ansi2html.convert(trace_ansi, state)
+      else
+        {}
+      end
     end
 
     def timeout
@@ -117,7 +151,16 @@ module Ci
     end
 
     def variables
-      predefined_variables + yaml_variables + project_variables + trigger_variables
+      variables = predefined_variables
+      variables += project.predefined_variables
+      variables += pipeline.predefined_variables
+      variables += runner.predefined_variables if runner
+      variables += project.container_registry_variables
+      variables += yaml_variables
+      variables += user_variables
+      variables += project.secret_variables
+      variables += trigger_request.user_variables if trigger_request
+      variables
     end
 
     def merge_request
@@ -139,7 +182,7 @@ module Ci
     end
 
     def repo_url
-      auth = "gitlab-ci-token:#{token}@"
+      auth = "gitlab-ci-token:#{ensure_token!}@"
       project.http_url_to_repo.sub(/^https?:\/\//) do |prefix|
         prefix + auth
       end
@@ -175,29 +218,34 @@ module Ci
       end
     end
 
+    def has_trace_file?
+      File.exist?(path_to_trace) || has_old_trace_file?
+    end
+
     def has_trace?
       raw_trace.present?
     end
 
-    def raw_trace
-      if File.file?(path_to_trace)
-        File.read(path_to_trace)
-      elsif project.ci_id && File.file?(old_path_to_trace)
-        # Temporary fix for build trace data integrity
-        File.read(old_path_to_trace)
+    def raw_trace(last_lines: nil)
+      if File.exist?(trace_file_path)
+        Gitlab::Ci::TraceReader.new(trace_file_path).
+          read(last_lines: last_lines)
       else
         # backward compatibility
         read_attribute :trace
       end
     end
 
-    def trace
-      trace = raw_trace
-      if project && trace.present? && project.runners_token.present?
-        trace.gsub(project.runners_token, 'xxxxxx')
-      else
-        trace
-      end
+    ##
+    # Deprecated
+    #
+    # This is a hotfix for CI build data integrity, see #4246
+    def has_old_trace_file?
+      project.ci_id && File.exist?(old_path_to_trace)
+    end
+
+    def trace(last_lines: nil)
+      hide_secrets(raw_trace(last_lines: last_lines))
     end
 
     def trace_length
@@ -210,6 +258,7 @@ module Ci
 
     def trace=(trace)
       recreate_trace_dir
+      trace = hide_secrets(trace)
       File.write(path_to_trace, trace)
     end
 
@@ -223,9 +272,19 @@ module Ci
     def append_trace(trace_part, offset)
       recreate_trace_dir
 
+      trace_part = hide_secrets(trace_part)
+
       File.truncate(path_to_trace, offset) if File.exist?(path_to_trace)
       File.open(path_to_trace, 'ab') do |f|
         f.write(trace_part)
+      end
+    end
+
+    def trace_file_path
+      if has_old_trace_file?
+        old_path_to_trace
+      else
+        path_to_trace
       end
     end
 
@@ -290,12 +349,8 @@ module Ci
       )
     end
 
-    def token
-      project.runners_token
-    end
-
     def valid_token?(token)
-      project.valid_runners_token? token
+      self.token && ActiveSupport::SecurityUtils.variable_size_secure_compare(token, self.token)
     end
 
     def has_tags?
@@ -312,7 +367,7 @@ module Ci
 
     def execute_hooks
       return unless project
-      build_data = Gitlab::BuildDataBuilder.build(self)
+      build_data = Gitlab::DataBuilder::Build.build(self)
       project.execute_hooks(build_data.dup, :build_hooks)
       project.execute_services(build_data.dup, :build_hooks)
       project.running_or_pending_build_count(force: true)
@@ -376,6 +431,23 @@ module Ci
       self.update(artifacts_expire_at: nil)
     end
 
+    def when
+      read_attribute(:when) || build_attributes_from_config[:when] || 'on_success'
+    end
+
+    def yaml_variables
+      read_attribute(:yaml_variables) || build_attributes_from_config[:yaml_variables] || []
+    end
+
+    def user_variables
+      return [] if user.blank?
+
+      [
+        { key: 'GITLAB_USER_ID', value: user.id.to_s, public: true },
+        { key: 'GITLAB_USER_EMAIL', value: user.email, public: true }
+      ]
+    end
+
     private
 
     def update_artifacts_size
@@ -394,53 +466,40 @@ module Ci
       self.update(erased_by: user, erased_at: Time.now, artifacts_expire_at: nil)
     end
 
-    def yaml_variables
-      global_yaml_variables + job_yaml_variables
-    end
-
-    def global_yaml_variables
-      if pipeline.config_processor
-        pipeline.config_processor.global_variables.map do |key, value|
-          { key: key, value: value, public: true }
-        end
-      else
-        []
-      end
-    end
-
-    def job_yaml_variables
-      if pipeline.config_processor
-        pipeline.config_processor.job_variables(name).map do |key, value|
-          { key: key, value: value, public: true }
-        end
-      else
-        []
-      end
-    end
-
-    def project_variables
-      project.variables.map do |variable|
-        { key: variable.key, value: variable.value, public: false }
-      end
-    end
-
-    def trigger_variables
-      if trigger_request && trigger_request.variables
-        trigger_request.variables.map do |key, value|
-          { key: key, value: value, public: false }
-        end
-      else
-        []
-      end
-    end
-
     def predefined_variables
-      variables = []
-      variables << { key: :CI_BUILD_TAG, value: ref, public: true } if tag?
-      variables << { key: :CI_BUILD_NAME, value: name, public: true }
-      variables << { key: :CI_BUILD_STAGE, value: stage, public: true }
-      variables << { key: :CI_BUILD_TRIGGERED, value: 'true', public: true } if trigger_request
+      variables = [
+        { key: 'CI', value: 'true', public: true },
+        { key: 'GITLAB_CI', value: 'true', public: true },
+        { key: 'CI_BUILD_ID', value: id.to_s, public: true },
+        { key: 'CI_BUILD_TOKEN', value: token, public: false },
+        { key: 'CI_BUILD_REF', value: sha, public: true },
+        { key: 'CI_BUILD_BEFORE_SHA', value: before_sha, public: true },
+        { key: 'CI_BUILD_REF_NAME', value: ref, public: true },
+        { key: 'CI_BUILD_NAME', value: name, public: true },
+        { key: 'CI_BUILD_STAGE', value: stage, public: true },
+        { key: 'CI_SERVER_NAME', value: 'GitLab', public: true },
+        { key: 'CI_SERVER_VERSION', value: Gitlab::VERSION, public: true },
+        { key: 'CI_SERVER_REVISION', value: Gitlab::REVISION, public: true }
+      ]
+      variables << { key: 'CI_BUILD_TAG', value: ref, public: true } if tag?
+      variables << { key: 'CI_BUILD_TRIGGERED', value: 'true', public: true } if trigger_request
+      variables << { key: 'CI_BUILD_MANUAL', value: 'true', public: true } if manual?
       variables
+    end
+
+    def build_attributes_from_config
+      return {} unless pipeline.config_processor
+
+      pipeline.config_processor.build_attributes(name)
+    end
+
+    def hide_secrets(trace)
+      return unless trace
+
+      trace = trace.dup
+      Ci::MaskSecret.mask!(trace, project.runners_token) if project
+      Ci::MaskSecret.mask!(trace, token)
+      trace
     end
   end
 end

@@ -15,7 +15,8 @@ module API
       #   GET /projects/:id/repository/branches
       get ":id/repository/branches" do
         branches = user_project.repository.branches.sort_by(&:name)
-        present branches, with: Entities::RepoObject, project: user_project
+
+        present branches, with: Entities::RepoBranch, project: user_project
       end
 
       # Get a single branch
@@ -28,14 +29,21 @@ module API
       get ':id/repository/branches/:branch', requirements: { branch: /.+/ } do
         @branch = user_project.repository.branches.find { |item| item.name == params[:branch] }
         not_found!("Branch") unless @branch
-        present @branch, with: Entities::RepoObject, project: user_project
+
+        present @branch, with: Entities::RepoBranch, project: user_project
       end
 
       # Protect a single branch
       #
+      # Note: The internal data model moved from `developers_can_{merge,push}` to `allowed_to_{merge,push}`
+      # in `gitlab-org/gitlab-ce!5081`. The API interface has not been changed (to maintain compatibility),
+      # but it works with the changed data model to infer `developers_can_merge` and `developers_can_push`.
+      #
       # Parameters:
       #   id (required) - The ID of a project
       #   branch (required) - The name of the branch
+      #   developers_can_push (optional) - Flag if developers can push to that branch
+      #   developers_can_merge (optional) - Flag if developers can merge to that branch
       # Example Request:
       #   PUT /projects/:id/repository/branches/:branch/protect
       put ':id/repository/branches/:branch/protect',
@@ -43,11 +51,28 @@ module API
         authorize_admin_project
 
         @branch = user_project.repository.find_branch(params[:branch])
-        not_found!("Branch") unless @branch
+        not_found!('Branch') unless @branch
         protected_branch = user_project.protected_branches.find_by(name: @branch.name)
-        user_project.protected_branches.create(name: @branch.name) unless protected_branch
 
-        present @branch, with: Entities::RepoObject, project: user_project
+        protected_branch_params = {
+          name: @branch.name,
+          developers_can_push: to_boolean(params[:developers_can_push]),
+          developers_can_merge: to_boolean(params[:developers_can_merge])
+        }
+
+        service_args = [user_project, current_user, protected_branch_params]
+
+        protected_branch = if protected_branch
+                             ProtectedBranches::ApiUpdateService.new(*service_args).execute(protected_branch)
+                           else
+                             ProtectedBranches::ApiCreateService.new(*service_args).execute
+                           end
+
+        if protected_branch.valid?
+          present @branch, with: Entities::RepoBranch, project: user_project
+        else
+          render_api_error!(protected_branch.errors.full_messages, 422)
+        end
       end
 
       # Unprotect a single branch
@@ -66,7 +91,7 @@ module API
         protected_branch = user_project.protected_branches.find_by(name: @branch.name)
         protected_branch.destroy if protected_branch
 
-        present @branch, with: Entities::RepoObject, project: user_project
+        present @branch, with: Entities::RepoBranch, project: user_project
       end
 
       # Create branch
@@ -80,11 +105,11 @@ module API
       post ":id/repository/branches" do
         authorize_push_project
         result = CreateBranchService.new(user_project, current_user).
-          execute(params[:branch_name], params[:ref])
+                 execute(params[:branch_name], params[:ref])
 
         if result[:status] == :success
           present result[:branch],
-                  with: Entities::RepoObject,
+                  with: Entities::RepoBranch,
                   project: user_project
         else
           render_api_error!(result[:message], 400)
@@ -99,10 +124,10 @@ module API
       # Example Request:
       #   DELETE /projects/:id/repository/branches/:branch
       delete ":id/repository/branches/:branch",
-          requirements: { branch: /.+/ } do
+             requirements: { branch: /.+/ } do
         authorize_push_project
         result = DeleteBranchService.new(user_project, current_user).
-          execute(params[:branch])
+                 execute(params[:branch])
 
         if result[:status] == :success
           {

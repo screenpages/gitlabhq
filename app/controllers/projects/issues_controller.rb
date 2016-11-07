@@ -1,8 +1,12 @@
 class Projects::IssuesController < Projects::ApplicationController
+  include NotesHelper
   include ToggleSubscriptionAction
   include IssuableActions
   include ToggleAwardEmoji
+  include IssuableCollections
+  include SpammableActions
 
+  before_action :redirect_to_external_issue_tracker, only: [:index, :new]
   before_action :module_enabled
   before_action :issue, only: [:edit, :update, :show, :referenced_merge_requests,
                                :related_branches, :can_create_branch]
@@ -16,25 +20,15 @@ class Projects::IssuesController < Projects::ApplicationController
   # Allow modify issue
   before_action :authorize_update_issue!, only: [:edit, :update]
 
-  # Allow issues bulk update
-  before_action :authorize_admin_issues!, only: [:bulk_update]
-
   respond_to :html
 
   def index
-    terms = params['issue_search']
-    @issues = get_issues_collection
-
-    if terms.present?
-      if terms =~ /\A#(\d+)\z/
-        @issues = @issues.where(iid: $1)
-      else
-        @issues = @issues.full_search(terms)
-      end
-    end
-
+    @issues = issues_collection
     @issues = @issues.page(params[:page])
-    @labels = @project.labels.where(title: params[:label_name])
+
+    if params[:label_name].present?
+      @labels = LabelsFinder.new(current_user, project_id: @project.id, title: params[:label_name]).execute
+    end
 
     respond_to do |format|
       format.html
@@ -62,13 +56,15 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def show
-    raw_notes = @issue.notes_with_associations.fresh
+    raw_notes = @issue.notes.inc_relations_for_view.fresh
 
     @notes = Banzai::NoteRenderer.
       render(raw_notes, @project, current_user, @path, @project_wiki, @ref)
 
     @note     = @project.notes.new(noteable: @issue)
     @noteable = @issue
+
+    preload_max_access_for_authors(@notes, @project)
 
     respond_to do |format|
       format.html
@@ -79,7 +75,7 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def create
-    @issue = Issues::CreateService.new(project, current_user, issue_params).execute
+    @issue = Issues::CreateService.new(project, current_user, issue_params.merge(request: request)).execute
 
     respond_to do |format|
       format.html do
@@ -89,7 +85,7 @@ class Projects::IssuesController < Projects::ApplicationController
           render :new
         end
       end
-      format.js do |format|
+      format.js do
         @link = @issue.attachment.url.to_js
       end
     end
@@ -119,6 +115,10 @@ class Projects::IssuesController < Projects::ApplicationController
         render json: @issue.to_json(include: { milestone: {}, assignee: { methods: :avatar_url }, labels: { methods: :text_color } })
       end
     end
+
+  rescue ActiveRecord::StaleObjectError
+    @conflict = true
+    render :edit
   end
 
   def referenced_merge_requests
@@ -158,28 +158,16 @@ class Projects::IssuesController < Projects::ApplicationController
     end
   end
 
-  def bulk_update
-    result = Issues::BulkUpdateService.new(project, current_user, bulk_update_params).execute
-
-    respond_to do |format|
-      format.json do
-        render json: { notice: "#{result[:count]} issues updated" }
-      end
-    end
-  end
-
   protected
 
   def issue
-    @issue ||= begin
-                 @project.issues.find_by!(iid: params[:id])
-               rescue ActiveRecord::RecordNotFound
-                 redirect_old
-               end
+    # The Sortable default scope causes performance issues when used with find_by
+    @noteable = @issue ||= @project.issues.where(iid: params[:id]).reorder(nil).take || redirect_old
   end
   alias_method :subscribable_resource, :issue
   alias_method :issuable, :issue
   alias_method :awardable, :issue
+  alias_method :spammable, :issue
 
   def authorize_read_issue!
     return render_404 unless can?(current_user, :read_issue, @issue)
@@ -194,7 +182,19 @@ class Projects::IssuesController < Projects::ApplicationController
   end
 
   def module_enabled
-    return render_404 unless @project.issues_enabled && @project.default_issues_tracker?
+    return render_404 unless @project.feature_available?(:issues, current_user) && @project.default_issues_tracker?
+  end
+
+  def redirect_to_external_issue_tracker
+    external = @project.external_issue_tracker
+
+    return unless external
+
+    if action_name == 'new'
+      redirect_to external.new_issue_path
+    else
+      redirect_to external.project_path
+    end
   end
 
   # Since iids are implemented only in 6.1
@@ -207,7 +207,6 @@ class Projects::IssuesController < Projects::ApplicationController
 
     if issue
       redirect_to issue_path(issue)
-      return
     else
       raise ActiveRecord::RecordNotFound.new
     end
@@ -216,19 +215,7 @@ class Projects::IssuesController < Projects::ApplicationController
   def issue_params
     params.require(:issue).permit(
       :title, :assignee_id, :position, :description, :confidential,
-      :milestone_id, :due_date, :state_event, :task_num, label_ids: []
-    )
-  end
-
-  def bulk_update_params
-    params.require(:update).permit(
-      :issues_ids,
-      :assignee_id,
-      :milestone_id,
-      :state_event,
-      label_ids: [],
-      add_label_ids: [],
-      remove_label_ids: []
+      :milestone_id, :due_date, :state_event, :task_num, :lock_version, label_ids: []
     )
   end
 end

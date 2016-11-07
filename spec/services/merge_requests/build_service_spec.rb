@@ -52,16 +52,32 @@ describe MergeRequests::BuildService, services: true do
       end
     end
 
-    context 'no commits in the diff' do
-      let(:commits) { [] }
+    context 'same source and target branch' do
+      let(:source_branch) { 'master' }
 
       it 'forbids the merge request from being created' do
         expect(merge_request.can_be_created).to eq(false)
       end
+
+      it 'adds an error message to the merge request' do
+        expect(merge_request.errors).to contain_exactly('You must select different branches')
+      end
+    end
+
+    context 'no commits in the diff' do
+      let(:commits) { [] }
+
+      it 'allows the merge request to be created' do
+        expect(merge_request.can_be_created).to eq(true)
+      end
+
+      it 'adds a WIP prefix to the merge request title' do
+        expect(merge_request.title).to eq('WIP: Feature branch')
+      end
     end
 
     context 'one commit in the diff' do
-      let(:commits) { [commit_1] }
+      let(:commits) { Commit.decorate([commit_1], project) }
 
       it 'allows the merge request to be created' do
         expect(merge_request.can_be_created).to eq(true)
@@ -84,7 +100,7 @@ describe MergeRequests::BuildService, services: true do
       end
 
       context 'commit has no description' do
-        let(:commits) { [commit_2] }
+        let(:commits) { Commit.decorate([commit_2], project) }
 
         it 'uses the title of the commit as the title of the merge request' do
           expect(merge_request.title).to eq(commit_2.safe_message)
@@ -99,19 +115,19 @@ describe MergeRequests::BuildService, services: true do
         let(:source_branch) { "#{issue.iid}-fix-issue" }
 
         it 'appends "Closes #$issue-iid" to the description' do
-          expect(merge_request.description).to eq("#{commit_1.safe_message.split(/\n+/, 2).last}\nCloses ##{issue.iid}")
+          expect(merge_request.description).to eq("#{commit_1.safe_message.split(/\n+/, 2).last}\n\nCloses ##{issue.iid}")
         end
 
         context 'merge request already has a description set' do
           let(:description) { 'Merge request description' }
 
           it 'appends "Closes #$issue-iid" to the description' do
-            expect(merge_request.description).to eq("#{description}\nCloses ##{issue.iid}")
+            expect(merge_request.description).to eq("#{description}\n\nCloses ##{issue.iid}")
           end
         end
 
         context 'commit has no description' do
-          let(:commits) { [commit_2] }
+          let(:commits) { Commit.decorate([commit_2], project) }
 
           it 'sets the description to "Closes #$issue-iid"' do
             expect(merge_request.description).to eq("Closes ##{issue.iid}")
@@ -121,7 +137,7 @@ describe MergeRequests::BuildService, services: true do
     end
 
     context 'more than one commit in the diff' do
-      let(:commits) { [commit_1, commit_2] }
+      let(:commits) { Commit.decorate([commit_1, commit_2], project) }
 
       it 'allows the merge request to be created' do
         expect(merge_request.can_be_created).to eq(true)

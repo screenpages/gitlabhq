@@ -28,4 +28,14 @@ module WorkhorseHelper
     headers.store(*Gitlab::Workhorse.send_git_archive(repository, ref: ref, format: format))
     head :ok
   end
+
+  # Send an entry from artifacts through Workhorse
+  def send_artifacts_entry(build, entry)
+    headers.store(*Gitlab::Workhorse.send_artifacts_entry(build, entry))
+    head :ok
+  end
+
+  def set_workhorse_internal_api_content_type
+    headers['Content-Type'] = Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE
+  end
 end

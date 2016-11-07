@@ -2,7 +2,7 @@ module Ci
   class Runner < ActiveRecord::Base
     extend Ci::Model
 
-    LAST_CONTACT_TIME = 5.minutes.ago
+    LAST_CONTACT_TIME = 1.hour.ago
     AVAILABLE_SCOPES = %w[specific shared active paused online]
     FORM_EDITABLE = %i[description tag_list active run_untagged locked]
 
@@ -112,6 +112,14 @@ module Ci
 
     def has_tags?
       tag_list.any?
+    end
+
+    def predefined_variables
+      [
+        { key: 'CI_RUNNER_ID', value: id.to_s, public: true },
+        { key: 'CI_RUNNER_DESCRIPTION', value: description, public: true },
+        { key: 'CI_RUNNER_TAGS', value: tag_list.to_s, public: true }
+      ]
     end
 
     private

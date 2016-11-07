@@ -17,34 +17,43 @@
     &.features .control-label {
       font-weight: normal;
     }
+
     .form-group {
       margin-bottom: 5px;
     }
+
     &> .form-group {
       padding-left: 0;
     }
   }
+
   .help-block {
     margin-bottom: 10px;
   }
+
   .project-path {
     padding-right: 0;
+
     .form-control {
       border-radius: $border-radius-base;
     }
   }
+
   .input-group > div {
     &:last-child {
       padding-right: 0;
     }
   }
+
   @media (max-width: $screen-xs-max) {
     .input-group > div {
       margin-bottom: 14px;
+
       &:last-child {
         margin-bottom: 0;
       }
     }
+
     fieldset > .form-group:first-child {
       padding-right: 0;
     }
@@ -56,6 +65,7 @@
       border-radius: 3px;
       border: 1px solid #e5e5e5;
     }
+
     &+ .select2 a {
       border-top-left-radius: 0;
       border-bottom-left-radius: 0;
@@ -99,7 +109,7 @@
     margin-left: auto;
     margin-right: auto;
     margin-bottom: 15px;
-    max-width: 480px;
+    max-width: 700px;
 
     > p {
       margin-bottom: 0;
@@ -129,13 +139,25 @@
       color: $layout-link-gray;
     }
 
+    svg {
+
+      path {
+        fill: $layout-link-gray;
+      }
+
+      use {
+        stroke: $layout-link-gray;
+      }
+    }
+
     .fa-caret-down {
       margin-left: 3px;
     }
   }
 
   .project-repo-btn-group,
-  .notification-dropdown {
+  .notification-dropdown,
+  .project-dropdown {
     margin-left: 10px;
   }
 
@@ -189,6 +211,7 @@
         pointer-events: none;
       }
     }
+
     .count {
       @include btn-gray;
       display: inline-block;
@@ -300,6 +323,14 @@ a.deploy-project-label {
   color: $gl-success;
 }
 
+.lfs-enabled {
+  color: $gl-success;
+}
+
+.lfs-disabled {
+  color: $gl-warning;
+}
+
 .breadcrumb.repo-breadcrumb {
   padding: 0;
   background: transparent;
@@ -315,6 +346,10 @@ a.deploy-project-label {
   a {
     color: $gl-dark-link-color;
   }
+
+  .dropdown-menu {
+    width: 240px;
+  }
 }
 
 .last-push-widget {
@@ -322,41 +357,88 @@ a.deploy-project-label {
 }
 
 .fork-namespaces {
-  .fork-thumbnail {
-    text-align: center;
-    margin-bottom: $gl-padding;
+  .row {
+    -webkit-flex-wrap: wrap;
+    display: -webkit-flex;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
 
-    .caption {
-      padding: $gl-padding 0;
-      min-height: 30px;
-    }
+    .fork-thumbnail {
+      border-radius: $border-radius-base;
+      background-color: $white-light;
+      border: 1px solid $border-white-light;
+      height: 202px;
+      margin: $gl-padding;
+      text-align: center;
+      width: 169px;
 
-    img {
-      @include border-radius(50%);
-      max-width: 100px;
+      &:hover, &.forked {
+        background-color: $row-hover;
+        border-color: $row-hover-border;
+      }
+
+      .no-avatar {
+        width: 100px;
+        height: 100px;
+        background-color: $gray-light;
+        border: 1px solid $gray-dark;
+        margin: 0 auto;
+        border-radius: 50%;
+
+        i {
+          font-size: 100px;
+          color: $gray-dark;
+        }
+      }
+
+      a {
+        display: block;
+        width: 100%;
+        height: 100%;
+        padding-top: $gl-padding;
+        color: $gl-gray;
+
+        .caption {
+          min-height: 30px;
+          padding: $gl-padding 0;
+        }
+      }
+
+      img {
+        border-radius: 50%;
+        max-width: 100px;
+      }
     }
   }
 }
 
 .project-import {
   .form-group {
-    margin-bottom: 0;
+    margin-bottom: 5px;
   }
+
   .import-buttons {
     padding-left: 0;
     display: -webkit-flex;
     display: flex;
     -webkit-flex-wrap: wrap;
     flex-wrap: wrap;
+
     .btn {
-      margin-right: 10px;
-      padding: 8px 12px;
+      margin: 0 10px 10px 0;
+      padding: 8px;
     }
-    &> div {
-      margin-bottom: 14px;
+
+    > div {
       padding-left: 0;
+
       &:last-child {
         margin-bottom: 0;
+
+        .btn {
+          margin-right: 0;
+        }
       }
     }
   }
@@ -430,7 +512,7 @@ pre.light-well {
   }
 
   .light-well {
-    @include border-radius (2px);
+    border-radius: 2px;
 
     color: #5b6169;
     font-size: 13px;
@@ -459,21 +541,24 @@ pre.light-well {
   .project-row {
     border-color: $table-border-color;
 
-    &.no-description {
-      .project {
-        line-height: 40px;
-      }
-    }
-
     .project-full-name {
       @include str-truncated;
     }
 
     .controls {
-      line-height: 40px;
+      line-height: $list-text-height;
 
       a:hover {
         text-decoration: none;
+      }
+
+      > span {
+        margin-left: 10px;
+      }
+
+      svg {
+        position: relative;
+        top: 2px;
       }
     }
   }
@@ -544,18 +629,25 @@ pre.light-well {
   }
 }
 
-.project-show-readme .readme-holder {
-  padding: $gl-padding 0;
-  border-top: 0;
-
-  .edit-project-readme {
-    z-index: 2;
-    position: relative;
+.project-show-readme {
+  .row-content-block {
+    background-color: inherit;
+    border: none;
   }
 
-  .wiki h1 {
-    border-bottom: none;
-    padding: 0;
+  .readme-holder {
+    padding: $gl-padding 0;
+    border-top: 0;
+
+    .edit-project-readme {
+      z-index: 2;
+      position: relative;
+    }
+
+    .wiki h1 {
+      border-bottom: none;
+      padding: 0;
+    }
   }
 }
 
@@ -568,6 +660,7 @@ pre.light-well {
 
   .clone-options {
     display: table-cell;
+
     a.btn {
       width: 100%;
     }
@@ -599,13 +692,38 @@ pre.light-well {
   }
 }
 
+.new_protected_branch {
+  label {
+    margin-top: 6px;
+    font-weight: normal;
+  }
+}
+
 .protected-branches-list {
   a {
     color: $gl-gray;
-    font-weight: 600;
 
     &:hover {
       color: $gl-link-color;
+    }
+
+    &.is-active {
+      font-weight: 600;
+    }
+  }
+
+  .settings-message {
+    margin: 0;
+    border-radius: 0 0 1px 1px;
+    padding: 20px 0;
+    border: none;
+  }
+
+  .table-bordered {
+    border-radius: 1px;
+
+    th:not(:last-child), td:not(:last-child) {
+      border-right: solid 1px transparent;
     }
   }
 }
@@ -627,8 +745,84 @@ pre.light-well {
   }
 }
 
-.project-refs-form {
+.project-refs-form .dropdown-menu, .dropdown-menu-projects {
+  width: 300px;
+
+  @media (min-width: $screen-sm-min) {
+    width: 500px;
+  }
+
+  a {
+    white-space: normal;
+  }
+}
+
+.compare-form-group {
   .dropdown-menu {
     width: 300px;
+  }
+}
+
+.clearable-input {
+  position: relative;
+
+  .clear-icon {
+    @extend .fa-times;
+    display: none;
+    position: absolute;
+    right: 7px;
+    top: 7px;
+    color: $location-icon-color;
+
+    &:before {
+      font-family: FontAwesome;
+      font-weight: normal;
+      font-style: normal;
+    }
+  }
+
+  &.has-value {
+    .clear-icon {
+      cursor: pointer;
+      display: block;
+    }
+  }
+}
+
+.project-path {
+  .form-control {
+    min-width: 100px;
+  }
+
+  .select2-choice {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+}
+
+.project-home-empty {
+  border-top: 0;
+
+  .container-fluid {
+    background: none;
+  }
+
+  p {
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 650px;
+  }
+}
+
+.project-feature-nested {
+  @media (min-width: $screen-sm-min) {
+    padding-left: 45px;
+  }
+}
+
+.project-repo-select {
+  &.disabled {
+    opacity: 0.5;
+    pointer-events: none;
   }
 }

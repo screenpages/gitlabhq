@@ -41,6 +41,88 @@ describe ProjectsController do
           end
         end
       end
+
+      describe "when project repository is disabled" do
+        render_views
+
+        before do
+          project.team << [user, :developer]
+          project.project_feature.update_attribute(:repository_access_level, ProjectFeature::DISABLED)
+        end
+
+        it 'shows wiki homepage' do
+          get :show, namespace_id: project.namespace.path, id: project.path
+
+          expect(response).to render_template('projects/_wiki')
+        end
+
+        it 'shows issues list page if wiki is disabled' do
+          project.project_feature.update_attribute(:wiki_access_level, ProjectFeature::DISABLED)
+
+          get :show, namespace_id: project.namespace.path, id: project.path
+
+          expect(response).to render_template('projects/issues/_issues')
+        end
+
+        it 'shows customize workflow page if wiki and issues are disabled' do
+          project.project_feature.update_attribute(:wiki_access_level, ProjectFeature::DISABLED)
+          project.project_feature.update_attribute(:issues_access_level, ProjectFeature::DISABLED)
+
+          get :show, namespace_id: project.namespace.path, id: project.path
+
+          expect(response).to render_template("projects/_customize_workflow")
+        end
+
+        it 'shows activity if enabled by user' do
+          user.update_attribute(:project_view, 'activity')
+
+          get :show, namespace_id: project.namespace.path, id: project.path
+
+          expect(response).to render_template("projects/_activity")
+        end
+      end
+    end
+
+    context "project with empty repo" do
+      let(:empty_project) { create(:project_empty_repo, :public) }
+
+      before { sign_in(user) }
+
+      User.project_views.keys.each do |project_view|
+        context "with #{project_view} view set" do
+          before do
+            user.update_attributes(project_view: project_view)
+
+            get :show, namespace_id: empty_project.namespace.path, id: empty_project.path
+          end
+
+          it "renders the empty project view" do
+            expect(response).to render_template('empty')
+          end
+        end
+      end
+    end
+
+    context "project with broken repo" do
+      let(:empty_project) { create(:project_broken_repo, :public) }
+
+      before { sign_in(user) }
+
+      User.project_views.keys.each do |project_view|
+        context "with #{project_view} view set" do
+          before do
+            user.update_attributes(project_view: project_view)
+
+            get :show, namespace_id: empty_project.namespace.path, id: empty_project.path
+          end
+
+          it "renders the empty project view" do
+            allow(Project).to receive(:repo).and_raise(Gitlab::Git::Repository::NoRepository)
+
+            expect(response).to render_template('projects/no_repo')
+          end
+        end
+      end
     end
 
     context "rendering default project view" do
@@ -108,7 +190,7 @@ describe ProjectsController do
     context "when the url contains .atom" do
       let(:public_project_with_dot_atom) { build(:project, :public, name: 'my.atom', path: 'my.atom') }
 
-      it 'expect an error creating the project' do
+      it 'expects an error creating the project' do
         expect(public_project_with_dot_atom).not_to be_valid
       end
     end
@@ -161,6 +243,25 @@ describe ProjectsController do
       expect(response).to have_http_status(302)
       expect(response).to redirect_to(dashboard_projects_path)
     end
+
+    context "when the project is forked" do
+      let(:project)      { create(:project) }
+      let(:fork_project) { create(:project, forked_from_project: project) }
+      let(:merge_request) do
+        create(:merge_request,
+          source_project: fork_project,
+          target_project: project)
+      end
+
+      it "closes all related merge requests" do
+        project.merge_requests << merge_request
+        sign_in(admin)
+
+        delete :destroy, namespace_id: fork_project.namespace.path, id: fork_project.path
+
+        expect(merge_request.reload.state).to eq('closed')
+      end
+    end
   end
 
   describe "POST #toggle_star" do
@@ -202,7 +303,7 @@ describe ProjectsController do
           create(:forked_project_link, forked_to_project: project_fork)
         end
 
-        it 'should remove fork from project' do
+        it 'removes fork from project' do
           delete(:remove_fork,
               namespace_id: project_fork.namespace.to_param,
               id: project_fork.to_param, format: :js)
@@ -216,7 +317,7 @@ describe ProjectsController do
       context 'when project not forked' do
         let(:unforked_project) { create(:project, namespace: user.namespace) }
 
-        it 'should do nothing if project was not forked' do
+        it 'does nothing if project was not forked' do
           delete(:remove_fork,
               namespace_id: unforked_project.namespace.to_param,
               id: unforked_project.to_param, format: :js)
@@ -236,7 +337,7 @@ describe ProjectsController do
   end
 
   describe "GET refs" do
-    it "should get a list of branches and tags" do
+    it "gets a list of branches and tags" do
       get :refs, namespace_id: public_project.namespace.path, id: public_project.path
 
       parsed_body = JSON.parse(response.body)
@@ -245,7 +346,7 @@ describe ProjectsController do
       expect(parsed_body["Commits"]).to be_nil
     end
 
-    it "should get a list of branches, tags and commits" do
+    it "gets a list of branches, tags and commits" do
       get :refs, namespace_id: public_project.namespace.path, id: public_project.path, ref: "123456"
 
       parsed_body = JSON.parse(response.body)

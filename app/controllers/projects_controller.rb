@@ -1,11 +1,12 @@
 class ProjectsController < Projects::ApplicationController
+  include IssuableCollections
   include ExtractsPath
 
   before_action :authenticate_user!, except: [:show, :activity, :refs]
   before_action :project, except: [:new, :create]
   before_action :repository, except: [:new, :create]
   before_action :assign_ref_vars, only: [:show], if: :repo_exists?
-  before_action :tree, only: [:show], if: :project_view_files?
+  before_action :tree, only: [:show], if: [:repo_exists?, :project_view_files?]
 
   # Authorize
   before_action :authorize_admin_project!, only: [:edit, :update, :housekeeping, :download_export, :export, :remove_export, :generate_new_export]
@@ -97,22 +98,13 @@ class ProjectsController < Projects::ApplicationController
     end
 
     if @project.pending_delete?
-      flash[:alert] = "Project queued for delete."
+      flash[:alert] = "Project #{@project.name} queued for deletion."
     end
 
     respond_to do |format|
       format.html do
         @notification_setting = current_user.notification_settings_for(@project) if current_user
-
-        if @project.repository_exists?
-          if @project.empty_repo?
-            render 'projects/empty'
-          else
-            render :show
-          end
-        else
-          render 'projects/no_repo'
-        end
+        render_landing_page
       end
 
       format.atom do
@@ -125,7 +117,7 @@ class ProjectsController < Projects::ApplicationController
   def destroy
     return access_denied! unless can?(current_user, :remove_project, @project)
 
-    ::Projects::DestroyService.new(@project, current_user, {}).pending_delete!
+    ::Projects::DestroyService.new(@project, current_user, {}).async_execute
     flash[:alert] = "Project '#{@project.name}' will be deleted."
 
     redirect_to dashboard_projects_path
@@ -134,10 +126,22 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def autocomplete_sources
-    note_type = params['type']
-    note_id = params['type_id']
+    noteable =
+      case params[:type]
+      when 'Issue'
+        IssuesFinder.new(current_user, project_id: @project.id).
+          execute.find_by(iid: params[:type_id])
+      when 'MergeRequest'
+        MergeRequestsFinder.new(current_user, project_id: @project.id).
+          execute.find_by(iid: params[:type_id])
+      when 'Commit'
+        @project.commit(params[:type_id])
+      else
+        nil
+      end
+
     autocomplete = ::Projects::AutocompleteService.new(@project, current_user)
-    participants = ::Projects::ParticipantsService.new(@project, current_user).execute(note_type, note_id)
+    participants = ::Projects::ParticipantsService.new(@project, current_user).execute(noteable)
 
     @suggestions = {
       emojis: Gitlab::AwardEmoji.urls,
@@ -145,7 +149,8 @@ class ProjectsController < Projects::ApplicationController
       milestones: autocomplete.milestones,
       mergerequests: autocomplete.merge_requests,
       labels: autocomplete.labels,
-      members: participants
+      members: participants,
+      commands: autocomplete.commands(noteable, params[:type])
     }
 
     respond_to do |format|
@@ -238,7 +243,7 @@ class ProjectsController < Projects::ApplicationController
     }
   end
 
-  def markdown_preview
+  def preview_markdown
     text = params[:text]
 
     ext = Gitlab::ReferenceExtractor.new(@project, current_user)
@@ -272,6 +277,26 @@ class ProjectsController < Projects::ApplicationController
 
   private
 
+  # Render project landing depending of which features are available
+  # So if page is not availble in the list it renders the next page
+  #
+  # pages list order: repository readme, wiki home, issues list, customize workflow
+  def render_landing_page
+    if @project.feature_available?(:repository, current_user)
+      return render 'projects/no_repo' unless @project.repository_exists?
+      render 'projects/empty' if @project.empty_repo?
+    else
+      if @project.wiki_enabled?
+        @wiki_home = @project.wiki.find_page('home', params[:version_id])
+      elsif @project.feature_available?(:issues, current_user)
+        @issues = issues_collection
+        @issues = @issues.page(params[:page])
+      end
+
+      render :show
+    end
+  end
+
   def determine_layout
     if [:new, :create].include?(action_name.to_sym)
       'application'
@@ -290,18 +315,34 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def project_params
+    project_feature_attributes =
+      {
+        project_feature_attributes:
+          [
+            :issues_access_level, :builds_access_level,
+            :wiki_access_level, :merge_requests_access_level,
+            :snippets_access_level, :repository_access_level
+          ]
+      }
+
     params.require(:project).permit(
       :name, :path, :description, :issues_tracker, :tag_list, :runners_token,
-      :issues_enabled, :merge_requests_enabled, :snippets_enabled, :container_registry_enabled,
+      :container_registry_enabled,
       :issues_tracker_id, :default_branch,
-      :wiki_enabled, :visibility_level, :import_url, :last_activity_at, :namespace_id, :avatar,
-      :builds_enabled, :build_allow_git_fetch, :build_timeout_in_minutes, :build_coverage_regex,
-      :public_builds, :only_allow_merge_if_build_succeeds
+      :visibility_level, :import_url, :last_activity_at, :namespace_id, :avatar,
+      :build_allow_git_fetch, :build_timeout_in_minutes, :build_coverage_regex,
+      :public_builds, :only_allow_merge_if_build_succeeds, :request_access_enabled,
+      :lfs_enabled, project_feature_attributes
     )
   end
 
   def repo_exists?
-    project.repository_exists? && !project.empty_repo?
+    project.repository_exists? && !project.empty_repo? && project.repo
+
+  rescue Gitlab::Git::Repository::NoRepository
+    project.repository.expire_exists_cache
+
+    false
   end
 
   def project_view_files?

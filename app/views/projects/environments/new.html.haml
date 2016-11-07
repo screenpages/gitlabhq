@@ -1,12 +1,9 @@
+- @no_container = true
 - page_title 'New Environment'
+= render "projects/pipelines/head"
 
-.row.prepend-top-default.append-bottom-default
-  .col-lg-3
-    %h4.prepend-top-0
-      New Environment
-    %p
-      Environments allow you to track deployments of your application
-      = succeed "." do
-        = link_to "Read more about environments", help_page_path("ci", "environments")
-
+%div{ class: container_class }
+  %h3.page-title
+    New environment
+  %hr
   = render 'form'

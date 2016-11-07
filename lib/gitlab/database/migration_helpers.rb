@@ -20,9 +20,17 @@ module Gitlab
 
         if Database.postgresql?
           options = options.merge({ algorithm: :concurrently })
+          disable_statement_timeout
         end
 
         add_index(table_name, column_name, options)
+      end
+
+      # Long-running migrations may take more than the timeout allowed by
+      # the database. Disable the session's statement timeout to ensure
+      # migrations don't get killed prematurely. (PostgreSQL only)
+      def disable_statement_timeout
+        ActiveRecord::Base.connection.execute('SET statement_timeout TO 0') if Database.postgresql?
       end
 
       # Updates the value of a column in batches.
@@ -121,20 +129,28 @@ module Gitlab
       # column - The name of the column to add.
       # type - The column type (e.g. `:integer`).
       # default - The default value for the column.
+      # limit - Sets a column limit. For example, for :integer, the default is
+      #         4-bytes. Set `limit: 8` to allow 8-byte integers.
       # allow_null - When set to `true` the column will allow NULL values, the
       #              default is to not allow NULL values.
       #
       # This method can also take a block which is passed directly to the
       # `update_column_in_batches` method.
-      def add_column_with_default(table, column, type, default:, allow_null: false, &block)
+      def add_column_with_default(table, column, type, default:, limit: nil, allow_null: false, &block)
         if transaction_open?
           raise 'add_column_with_default can not be run inside a transaction, ' \
             'you can disable transactions by calling disable_ddl_transaction! ' \
             'in the body of your migration class'
         end
 
+        disable_statement_timeout
+
         transaction do
-          add_column(table, column, type, default: nil)
+          if limit
+            add_column(table, column, type, default: nil, limit: limit)
+          else
+            add_column(table, column, type, default: nil)
+          end
 
           # Changing the default before the update ensures any newly inserted
           # rows already use the proper default value.

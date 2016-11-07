@@ -70,6 +70,7 @@ production: &base
     email_from: example@example.com
     email_display_name: GitLab
     email_reply_to: noreply@example.com
+    email_subject_suffix: ''
 
     # Email server smtp settings are in config/initializers/smtp_settings.rb.sample
 
@@ -106,12 +107,12 @@ production: &base
 
     ## Repository downloads directory
     # When a user clicks e.g. 'Download zip' on a project, a temporary zip file is created in the following directory.
-    # The default is 'tmp/repositories' relative to the root of the Rails app.
-    # repository_downloads_path: tmp/repositories
+    # The default is 'shared/cache/archive/' relative to the root of the Rails app.
+    # repository_downloads_path: shared/cache/archive/
 
   ## Reply by email
   # Allow users to comment on issues and merge requests by replying to notification emails.
-  # For documentation on how to set this up, see http://doc.gitlab.com/ce/incoming_email/README.html
+  # For documentation on how to set this up, see http://doc.gitlab.com/ce/administration/reply_by_email.html
   incoming_email:
     enabled: false
 

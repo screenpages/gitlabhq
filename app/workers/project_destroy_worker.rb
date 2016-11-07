@@ -1,7 +1,6 @@
 class ProjectDestroyWorker
   include Sidekiq::Worker
-
-  sidekiq_options queue: :default
+  include DedicatedSidekiqQueue
 
   def perform(project_id, user_id, params)
     begin
@@ -12,6 +11,6 @@ class ProjectDestroyWorker
 
     user = User.find(user_id)
 
-    ::Projects::DestroyService.new(project, user, params).execute
+    ::Projects::DestroyService.new(project, user, params.symbolize_keys).execute
   end
 end

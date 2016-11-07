@@ -33,13 +33,25 @@
       font-size: smaller;
     }
   }
+
+  .file-title {
+    cursor: pointer;
+
+    &:hover {
+      background-color: $dark-background-color;
+    }
+
+    .diff-toggle-caret {
+      padding-right: 6px;
+    }
+  }
+
   .diff-content {
     overflow: auto;
     overflow-y: hidden;
     background: #fff;
     color: #333;
     border-radius: 0 0 3px 3px;
-    -webkit-overflow-scrolling: auto;
 
     .unfold {
       cursor: pointer;
@@ -68,6 +80,11 @@
       border-collapse: separate;
       margin: 0;
       padding: 0;
+      table-layout: fixed;
+
+      .diff-line-num {
+        width: 50px;
+      }
 
       .line_holder td {
         line-height: $code_line_height;
@@ -98,10 +115,6 @@
     }
 
     tr.line_holder.parallel {
-      .old_line, .new_line {
-        min-width: 50px;
-      }
-
       td.line_content.parallel {
         width: 46%;
       }
@@ -122,15 +135,18 @@
       max-width: 50px;
       width: 35px;
       @include user-select(none);
+
       a {
         float: left;
         width: 35px;
         font-weight: normal;
+
         &:hover {
           text-decoration: underline;
         }
       }
     }
+
     .line_content {
       display: block;
       margin: 0;
@@ -150,10 +166,12 @@
       white-space: pre-wrap;
     }
   }
+
   .image {
     background: #ddd;
     text-align: center;
     padding: 30px;
+
     .wrap {
       display: inline-block;
     }
@@ -162,11 +180,16 @@
       display: inline-block;
       background-color: #fff;
       line-height: 0;
+
       img {
         border: 1px solid #fff;
-        background: image-url('trans_bg.gif');
+        background-image: linear-gradient(45deg, #e5e5e5 25%, transparent 25%, transparent 75%, #e5e5e5 75%, #e5e5e5 100%),
+        linear-gradient(45deg, #e5e5e5 25%, transparent 25%, transparent 75%, #e5e5e5 75%, #e5e5e5 100%);
+        background-size: 10px 10px;
+        background-position: 0 0, 5px 5px;
         max-width: 100%;
       }
+
       &.deleted {
         border: 1px solid $deleted;
       }
@@ -175,6 +198,7 @@
         border: 1px solid $added;
       }
     }
+
     .image-info {
       font-size: 12px;
       margin: 5px 0 0;
@@ -189,6 +213,7 @@
         margin: auto;
         position: relative;
       }
+
       .swipe-wrap {
         overflow: hidden;
         border-left: 1px solid #999;
@@ -197,10 +222,12 @@
         top: 13px;
         right: 7px;
       }
+ 
       .frame {
         top: 0;
         right: 0;
         position: absolute;
+ 
         &.deleted {
           margin: 0;
           display: block;
@@ -208,6 +235,7 @@
           right: 7px;
         }
       }
+
       .swipe-bar {
         display: block;
         height: 100%;
@@ -215,14 +243,17 @@
         z-index: 100;
         position: absolute;
         cursor: pointer;
+
         &:hover {
           .top-handle {
             background-position: -15px 3px;
           }
+
           .bottom-handle {
             background-position: -15px -11px;
           }
         }
+
         .top-handle {
           display: block;
           height: 14px;
@@ -231,6 +262,7 @@
           top: 0;
           background: image-url('swipemode_sprites.gif') 0 3px no-repeat;
         }
+
         .bottom-handle {
           display: block;
           height: 14px;
@@ -248,12 +280,14 @@
         margin: auto;
         position: relative;
       }
+
       .frame.added, .frame.deleted {
         position: absolute;
         display: block;
         top: 0;
         left: 0;
       }
+
       .controls {
         display: block;
         height: 14px;
@@ -307,6 +341,7 @@
     }
     //.view.onion-skin
   }
+
   .view-modes {
     padding: 10px;
     text-align: center;
@@ -324,19 +359,24 @@
       border-left: 1px solid #c1c1c1;
       padding: 0 12px 0 16px;
       cursor: pointer;
+
       &:first-child {
         border-left: none;
       }
+
       &:hover {
         text-decoration: underline;
       }
+
       &.active {
         &:hover {
           text-decoration: none;
         }
+
         cursor: default;
         color: #333;
       }
+
       &.disabled {
         display: none;
       }

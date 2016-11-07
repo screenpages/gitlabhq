@@ -6,10 +6,11 @@
   background: $background-color;
   color: $gl-gray;
   border: 1px solid $border-color;
-  @include border-radius(2px);
+  border-radius: 2px;
 
   form {
     margin-bottom: 0;
+
     .clearfix {
       margin-bottom: 0;
     }
@@ -46,6 +47,7 @@
 
       &.right {
         float: right;
+
         a {
           color: $gl-gray;
         }
@@ -60,12 +62,28 @@
   .ci_widget {
     border-bottom: 1px solid #eef0f2;
 
-    i {
+    svg {
       margin-right: 4px;
+      position: relative;
+      top: 1px;
+      overflow: visible;
     }
 
     &.ci-success {
       color: $gl-success;
+
+      a.environment,
+      a.pipeline {
+        color: inherit;
+      }
+    }
+
+    &.ci-success_with_warnings {
+      color: $gl-success;
+
+      i {
+        color: $gl-warning;
+      }
     }
 
     &.ci-skipped {
@@ -73,9 +91,12 @@
       color: #888;
     }
 
-    &.ci-pending,
-    &.ci-running {
+    &.ci-pending {
       color: $gl-warning;
+    }
+
+    &.ci-running {
+      color: $blue-normal;
     }
 
     &.ci-failed,
@@ -102,6 +123,10 @@
     color: #5c5d5e;
   }
 
+  .js-deployment-link {
+    display: inline-block;
+  }
+
   .mr-widget-body {
     h4 {
       font-weight: 600;
@@ -112,7 +137,6 @@
       &.has-conflicts .fa-exclamation-triangle {
         color: $gl-warning;
       }
-
     }
 
     p:last-child {
@@ -159,6 +183,15 @@
   .ci-coverage {
     float: right;
   }
+
+  .stop-env-container {
+    color: $gl-text-color;
+    float: right;
+
+    a {
+      color: $gl-text-color;
+    }
+  }
 }
 
 .mr_source_commit,
@@ -170,6 +203,7 @@
     padding-top: 2px;
     padding-bottom: 2px;
     list-style: none;
+
     &:hover {
       background: none;
     }
@@ -186,6 +220,19 @@
   word-break: break-all;
 }
 
+.commits-empty {
+  text-align: center;
+
+  h4 {
+    padding-top: 20px;
+    padding-bottom: 10px;
+  }
+
+  svg {
+    width: 230px;
+  }
+}
+
 .mr-list {
   .merge-request {
     padding: 10px 15px;
@@ -193,15 +240,26 @@
 
     .merge-request-title {
       margin-bottom: 2px;
+
+      .ci-status-link {
+
+        svg {
+          height: 16px;
+          width: 16px;
+          position: relative;
+          top: 3px;
+        }
+
+        &:hover,
+        &:focus {
+          text-decoration: none;
+        }
+      }
     }
   }
 
   .merge-request-labels {
     display: inline-block;
-  }
-
-  .merge-request-no-comments {
-    opacity: 0.5;
   }
 }
 
@@ -235,12 +293,6 @@
   line-height: 31px;
 }
 
-.builds {
-  .table-holder {
-    overflow-x: scroll;
-  }
-}
-
 .panel-new-merge-request {
   .panel-heading {
     padding: 5px 10px;
@@ -267,7 +319,7 @@
 
     .item-title {
       @media (min-width: $screen-sm-min) {
-        width: 49%;
+        width: 45%;
       }
     }
 
@@ -321,10 +373,14 @@
 .issuable-form-select-holder {
   display: inline-block;
   width: 250px;
+
+  .dropdown-menu-toggle {
+    width: 100%;
+  }
 }
 
 .table-holder {
-  .builds {
+  .ci-table {
 
     th {
       background-color: $white-light;
@@ -340,5 +396,60 @@
     &:not(:last-child) {
       margin-right: 10px;
     }
+  }
+}
+
+.mr-version-controls {
+  background: $background-color;
+  border-bottom: 1px solid $border-color;
+  color: $gl-text-color;
+
+  .mr-version-menus-container {
+    display: -webkit-flex;
+    display: flex;
+    -webkit-align-items: center;
+    align-items: center;
+    padding: 16px;
+  }
+
+  .content-block {
+    border-top: 1px solid $border-color;
+    padding: $gl-padding-top $gl-padding;
+  }
+
+  .comments-disabled-notif {
+    .btn {
+      margin-left: 5px;
+    }
+  }
+
+  .mr-version-dropdown,
+  .mr-version-compare-dropdown {
+    margin: 0 7px;
+  }
+
+  .dropdown-title {
+    color: $gl-text-color;
+  }
+
+  .fa-info-circle {
+    color: $orange-normal;
+    padding-right: 5px;
+  }
+}
+
+.merge-request-tabs-holder {
+  background-color: $white-light;
+
+  &.affix {
+    top: 100px;
+    left: 0;
+    z-index: 10;
+    transition: right .15s;
+  }
+
+  &:not(.affix) .container-fluid {
+    padding-left: 0;
+    padding-right: 0;
   }
 }

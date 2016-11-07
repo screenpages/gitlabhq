@@ -6,48 +6,6 @@ GitLab Runner to manage your project's builds.
 If you want a quick introduction to GitLab CI, follow our
 [quick start guide](../quick_start/README.md).
 
----
-
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
-
-- [.gitlab-ci.yml](#gitlab-ci-yml)
-  - [image and services](#image-and-services)
-  - [before_script](#before_script)
-  - [after_script](#after_script)
-  - [stages](#stages)
-  - [types](#types)
-  - [variables](#variables)
-  - [cache](#cache)
-    - [cache:key](#cache-key)
-- [Jobs](#jobs)
-  - [script](#script)
-  - [stage](#stage)
-  - [only and except](#only-and-except)
-  - [job variables](#job-variables)
-  - [tags](#tags)
-  - [when](#when)
-  - [environment](#environment)
-  - [artifacts](#artifacts)
-    - [artifacts:name](#artifactsname)
-    - [artifacts:when](#artifactswhen)
-    - [artifacts:expire_in](#artifactsexpire_in)
-  - [dependencies](#dependencies)
-  - [before_script and after_script](#before_script-and-after_script)
-- [Git Strategy](#git-strategy)
-- [Shallow cloning](#shallow-cloning)
-- [Hidden jobs](#hidden-jobs)
-- [Special YAML features](#special-yaml-features)
-  - [Anchors](#anchors)
-- [Validate the .gitlab-ci.yml](#validate-the-gitlab-ciyml)
-- [Skipping builds](#skipping-builds)
-- [Examples](#examples)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
----
-
 ## .gitlab-ci.yml
 
 From version 7.12, GitLab CI uses a [YAML](https://en.wikipedia.org/wiki/YAML)
@@ -132,8 +90,7 @@ builds, including deploy builds. This can be an array or a multi-line string.
 
 ### after_script
 
->**Note:**
-Introduced in GitLab 8.7 and requires Gitlab Runner v1.2 (not yet released)
+> Introduced in GitLab 8.7 and requires Gitlab Runner v1.2
 
 `after_script` is used to define the command that will be run after for all
 builds. This has to be an array or a multi-line string.
@@ -177,11 +134,10 @@ Alias for [stages](#stages).
 
 ### variables
 
->**Note:**
-Introduced in GitLab Runner v0.5.0.
+> Introduced in GitLab Runner v0.5.0.
 
 GitLab CI allows you to add variables to `.gitlab-ci.yml` that are set in the
-build environment. The variables are stored in the git repository and are meant
+build environment. The variables are stored in the Git repository and are meant
 to store non-sensitive project configuration, for example:
 
 ```yaml
@@ -190,19 +146,25 @@ variables:
 ```
 
 These variables can be later used in all executed commands and scripts.
-
 The YAML-defined variables are also set to all created service containers,
-thus allowing to fine tune them.
+thus allowing to fine tune them. Variables can be also defined on a
+[job level](#job-variables).
 
-Variables can be also defined on [job level](#job-variables).
+Except for the user defined variables, there are also the ones set up by the
+Runner itself. One example would be `CI_BUILD_REF_NAME` which has the value of
+the branch or tag name for which project is built. Apart from the variables
+you can set in `.gitlab-ci.yml`, there are also the so called secret variables
+which can be set in GitLab's UI.
+
+[Learn more about variables.][variables]
 
 ### cache
 
->**Note:**
-Introduced in GitLab Runner v0.7.0.
+> Introduced in GitLab Runner v0.7.0.
 
 `cache` is used to specify a list of files and directories which should be
-cached between builds.
+cached between builds. You can only use paths that are within the project
+workspace.
 
 **By default the caching is enabled per-job and per-branch.**
 
@@ -260,8 +222,7 @@ will be always present. For implementation details, please check GitLab Runner.
 
 #### cache:key
 
->**Note:**
-Introduced in GitLab Runner v1.0.0.
+> Introduced in GitLab Runner v1.0.0.
 
 The `key` directive allows you to define the affinity of caching
 between jobs, allowing to have a single cache for all jobs,
@@ -351,7 +312,7 @@ job_name:
 | except        | no | Defines a list of git refs for which build is not created |
 | tags          | no | Defines a list of tags which are used to select Runner |
 | allow_failure | no | Allow build to fail. Failed build doesn't contribute to commit status |
-| when          | no | Define when to run build. Can be `on_success`, `on_failure` or `always` |
+| when          | no | Define when to run build. Can be `on_success`, `on_failure`, `always` or `manual` |
 | dependencies  | no | Define other builds that a build depends on so that you can pass artifacts between them|
 | artifacts     | no | Define list of build artifacts |
 | cache         | no | Define list of files that should be cached between subsequent runs |
@@ -376,6 +337,8 @@ job:
     - uname -a
     - bundle exec rspec
 ```
+
+Sometimes, `script` commands will need to be wrapped in single or double quotes. For example, commands that contain a colon (`:`) need to be wrapped in quotes so that the YAML parser knows to interpret the whole thing as a string rather than a "key: value" pair. Be careful when using special characters (`:`, `{`, `}`, `[`, `]`, `,`, `&`, `*`, `#`, `?`, `|`, `-`, `<`, `>`, `=`, `!`, `%`, `@`, `` ` ``).
 
 ### stage
 
@@ -473,6 +436,39 @@ job:
 The specification above, will make sure that `job` is built by a Runner that
 has both `ruby` AND `postgres` tags defined.
 
+### allow_failure
+
+`allow_failure` is used when you want to allow a build to fail without impacting
+the rest of the CI suite. Failed builds don't contribute to the commit status.
+
+When enabled and the build fails, the pipeline will be successful/green for all
+intents and purposes, but a "CI build passed with warnings" message  will be
+displayed on the merge request or commit or build page. This is to be used by
+builds that are allowed to fail, but where failure indicates some other (manual)
+steps should be taken elsewhere.
+
+In the example below, `job1` and `job2` will run in parallel, but if `job1`
+fails, it will not stop the next stage from running, since it's marked with
+`allow_failure: true`:
+
+```yaml
+job1:
+  stage: test
+  script:
+  - execute_script_that_will_fail
+  allow_failure: true
+
+job2:
+  stage: test
+  script:
+  - execute_script_that_will_succeed
+
+job3:
+  stage: deploy
+  script:
+  - deploy_to_staging
+```
+
 ### when
 
 `when` is used to implement jobs that are run in case of failure or despite the
@@ -485,6 +481,8 @@ failure.
 1. `on_failure` - execute build only when at least one build from prior stages
     fails.
 1. `always` - execute build regardless of the status of builds from prior stages.
+1. `manual` - execute build manually (added in GitLab 8.10). Read about
+    [manual actions](#manual-actions) below.
 
 For example:
 
@@ -516,6 +514,7 @@ deploy_job:
   stage: deploy
   script:
   - make deploy
+  when: manual
 
 cleanup_job:
   stage: cleanup
@@ -526,28 +525,49 @@ cleanup_job:
 
 The above script will:
 
-1. Execute `cleanup_build_job` only when `build_job` fails
-2. Always execute `cleanup_job` as the last step in pipeline.
+1. Execute `cleanup_build_job` only when `build_job` fails.
+2. Always execute `cleanup_job` as the last step in pipeline regardless of
+   success or failure.
+3. Allow you to manually execute `deploy_job` from GitLab's UI.
+
+#### Manual actions
+
+> Introduced in GitLab 8.10.
+
+Manual actions are a special type of job that are not executed automatically;
+they need to be explicitly started by a user. Manual actions can be started
+from pipeline, build, environment, and deployment views. You can execute the
+same manual action multiple times.
+
+An example usage of manual actions is deployment to production.
 
 ### environment
 
->**Note:**
-Introduced in GitLab 8.9.
+> Introduced in GitLab 8.9.
+
+> You can read more about environments and find more examples in the
+[documentation about environments][environment].
 
 `environment` is used to define that a job deploys to a specific environment.
-This allows easy tracking of all deployments to your environments straight from
-GitLab.
-
 If `environment` is specified and no environment under that name exists, a new
 one will be created automatically.
 
-The `environment` name must contain only letters, digits, '-' and '_'. Common
-names are `qa`, `staging`, and `production`, but you can use whatever name works
-with your workflow.
+The `environment` name can contain:
 
----
+- letters
+- digits
+- spaces
+- `-`
+- `_`
+- `/`
+- `$`
+- `{`
+- `}`
 
-**Example configurations**
+Common names are `qa`, `staging`, and `production`, but you can use whatever
+name works with your workflow.
+
+In its simplest form, the `environment` keyword can be defined like:
 
 ```
 deploy to production:
@@ -556,8 +576,134 @@ deploy to production:
   environment: production
 ```
 
-The `deploy to production` job will be marked as doing deployment to
-`production` environment.
+In the above example, the `deploy to production` job will be marked as doing a
+deployment to the `production` environment.
+
+#### environment:name
+
+> Introduced in GitLab 8.11.
+
+>**Note:**
+Before GitLab 8.11, the name of an environment could be defined as a string like
+`environment: production`. The recommended way now is to define it under the
+`name` keyword.
+
+Instead of defining the name of the environment right after the `environment`
+keyword, it is also possible to define it as a separate value. For that, use
+the `name` keyword under `environment`:
+
+```
+deploy to production:
+  stage: deploy
+  script: git push production HEAD:master
+  environment:
+    name: production
+```
+
+#### environment:url
+
+> Introduced in GitLab 8.11.
+
+>**Note:**
+Before GitLab 8.11, the URL could be added only in GitLab's UI. The
+recommended way now is to define it in `.gitlab-ci.yml`.
+
+This is an optional value that when set, it exposes buttons in various places
+in GitLab which when clicked take you to the defined URL.
+
+In the example below, if the job finishes successfully, it will create buttons
+in the merge requests and in the environments/deployments pages which will point
+to `https://prod.example.com`.
+
+```
+deploy to production:
+  stage: deploy
+  script: git push production HEAD:master
+  environment:
+    name: production
+    url: https://prod.example.com
+```
+
+#### environment:on_stop
+
+> [Introduced][ce-6669] in GitLab 8.13.
+
+Closing (stoping) environments can be achieved with the `on_stop` keyword defined under
+`environment`. It declares a different job that runs in order to close
+the environment.
+
+Read the `environment:action` section for an example.
+
+#### environment:action
+
+> [Introduced][ce-6669] in GitLab 8.13.
+
+The `action` keyword is to be used in conjunction with `on_stop` and is defined
+in the job that is called to close the environment.
+
+Take for instance:
+
+```yaml
+review_app:
+  stage: deploy
+  script: make deploy-app
+  environment:
+    name: review
+    on_stop: stop_review_app
+
+stop_review_app:
+  stage: deploy
+  script: make delete-app
+  when: manual
+  environment:
+    name: review
+    action: stop
+```
+
+In the above example we set up the `review_app` job to deploy to the `review`
+environment, and we also defined a new `stop_review_app` job under `on_stop`.
+Once the `review_app` job is successfully finished, it will trigger the
+`stop_review_app` job based on what is defined under `when`. In this case we
+set it up to `manual` so it will need a [manual action](#manual-actions) via
+GitLab's web interface in order to run.
+
+The `stop_review_app` job is **required** to have the following keywords defined:
+
+- `when` - [reference](#when)
+- `environment:name`
+- `environment:action`
+
+#### dynamic environments
+
+> [Introduced][ce-6323] in GitLab 8.12 and GitLab Runner 1.6.
+
+`environment` can also represent a configuration hash with `name` and `url`.
+These parameters can use any of the defined [CI variables](#variables)
+(including predefined, secure variables and `.gitlab-ci.yml` variables).
+
+For example:
+
+```
+deploy as review app:
+  stage: deploy
+  script: make deploy
+  environment:
+    name: review-apps/$CI_BUILD_REF_NAME
+    url: https://$CI_BUILD_REF_NAME.review.example.com/
+```
+
+The `deploy as review app` job will be marked as deployment to dynamically
+create the `review-apps/$CI_BUILD_REF_NAME` environment, which `$CI_BUILD_REF_NAME`
+is an [environment variable][variables] set by the Runner. If for example the
+`deploy as review app` job was run in a branch named `pow`, this environment
+should be accessible under `https://pow.review.example.com/`.
+
+This of course implies that the underlying server which hosts the application
+is properly configured.
+
+The common use case is to create dynamic environments for branches and use them
+as Review Apps. You can see a simple example using Review Apps at
+https://gitlab.com/gitlab-examples/review-apps-nginx/.
 
 ### artifacts
 
@@ -569,8 +715,8 @@ The `deploy to production` job will be marked as doing deployment to
 > - Build artifacts are only collected for successful builds by default.
 
 `artifacts` is used to specify a list of files and directories which should be
-attached to the build after success. To pass artifacts between different builds,
-see [dependencies](#dependencies).
+attached to the build after success. You can only use paths that are within the
+project workspace. To pass artifacts between different builds, see [dependencies](#dependencies).
 
 Below are some examples.
 
@@ -626,13 +772,13 @@ be available for download in the GitLab UI.
 
 #### artifacts:name
 
->**Note:**
-Introduced in GitLab 8.6 and GitLab Runner v1.1.0.
+> Introduced in GitLab 8.6 and GitLab Runner v1.1.0.
 
 The `name` directive allows you to define the name of the created artifacts
-archive. That way, you can have a unique name of every archive which could be
+archive. That way, you can have a unique name for every archive which could be
 useful when you'd like to download the archive from GitLab. The `artifacts:name`
 variable can make use of any of the [predefined variables](../variables/README.md).
+The default name is `artifacts`, which becomes `artifacts.zip` when downloaded.
 
 ---
 
@@ -689,8 +835,7 @@ job:
 
 #### artifacts:when
 
->**Note:**
-Introduced in GitLab 8.9 and GitLab Runner v1.3.0.
+> Introduced in GitLab 8.9 and GitLab Runner v1.3.0.
 
 `artifacts:when` is used to upload artifacts on build failure or despite the
 failure.
@@ -715,8 +860,7 @@ job:
 
 #### artifacts:expire_in
 
->**Note:**
-Introduced in GitLab 8.9 and GitLab Runner v1.3.0.
+> Introduced in GitLab 8.9 and GitLab Runner v1.3.0.
 
 `artifacts:expire_in` is used to delete uploaded artifacts after the specified
 time. By default, artifacts are stored on GitLab forever. `expire_in` allows you
@@ -751,18 +895,18 @@ job:
 
 ### dependencies
 
->**Note:**
-Introduced in GitLab 8.6 and GitLab Runner v1.1.1.
+> Introduced in GitLab 8.6 and GitLab Runner v1.1.1.
 
 This feature should be used in conjunction with [`artifacts`](#artifacts) and
 allows you to define the artifacts to pass between different builds.
 
-Note that `artifacts` from previous [stages](#stages) are passed by default.
+Note that `artifacts` from all previous [stages](#stages) are passed by default.
 
 To use this feature, define `dependencies` in context of the job and pass
 a list of all previous builds from which the artifacts should be downloaded.
 You can only define builds from stages that are executed before the current one.
 An error will be shown if you define builds from the current stage or next ones.
+Defining an empty array will skip downloading any artifacts for that job.
 
 ---
 
@@ -825,32 +969,48 @@ job:
 
 ## Git Strategy
 
->**Note:**
-Introduced in GitLab 8.9 as an experimental feature. May change in future
-releases or be removed completely.
+> Introduced in GitLab 8.9 as an experimental feature.  May change or be removed
+  completely in future releases. `GIT_STRATEGY=none` requires GitLab Runner
+  v1.7+.
 
-You can set the `GIT_STRATEGY` used for getting recent application code. `clone`
-is slower, but makes sure you have a clean directory before every build. `fetch`
-is faster. `GIT_STRATEGY` can be specified in the global `variables` section or
-in the `variables` section for individual jobs. If it's not specified, then the
-default from project settings will be used.
+You can set the `GIT_STRATEGY` used for getting recent application code, either
+in the global [`variables`](#variables) section or the [`variables`](#job-variables)
+section for individual jobs. If left unspecified, the default from project
+settings will be used.
+
+There are three possible values: `clone`, `fetch`, and `none`.
+
+`clone` is the slowest option. It clones the repository from scratch for every
+job, ensuring that the project workspace is always pristine.
 
 ```
 variables:
   GIT_STRATEGY: clone
 ```
 
-or
+`fetch` is faster as it re-uses the project workspace (falling back to `clone`
+if it doesn't exist). `git clean` is used to undo any changes made by the last
+job, and `git fetch` is used to retrieve commits made since the last job ran.
 
 ```
 variables:
   GIT_STRATEGY: fetch
 ```
 
+`none` also re-uses the project workspace, but skips all Git operations
+(including GitLab Runner's pre-clone script, if present). It is mostly useful
+for jobs that operate exclusively on artifacts (e.g., `deploy`). Git repository
+data may be present, but it is certain to be out of date, so you should only
+rely on files brought into the project workspace from cache or artifacts.
+
+```
+variables:
+  GIT_STRATEGY: none
+```
+
 ## Shallow cloning
 
->**Note:**
-Introduced in GitLab 8.9 as an experimental feature. May change in future
+> Introduced in GitLab 8.9 as an experimental feature. May change in future
 releases or be removed completely.
 
 You can specify the depth of fetching and cloning using `GIT_DEPTH`. This allows
@@ -878,23 +1038,25 @@ variables:
   GIT_DEPTH: "3"
 ```
 
-## Hidden jobs
+## Hidden keys
 
->**Note:**
-Introduced in GitLab 8.6 and GitLab Runner v1.1.1.
+> Introduced in GitLab 8.6 and GitLab Runner v1.1.1.
 
-Jobs that start with a dot (`.`) will be not processed by GitLab CI. You can
+Keys that start with a dot (`.`) will be not processed by GitLab CI. You can
 use this feature to ignore jobs, or use the
-[special YAML features](#special-yaml-features) and transform the hidden jobs
+[special YAML features](#special-yaml-features) and transform the hidden keys
 into templates.
 
-In the following example, `.job_name` will be ignored:
+In the following example, `.key_name` will be ignored:
 
 ```yaml
-.job_name:
+.key_name:
   script:
     - rake spec
 ```
+
+Hidden keys can be hashes like normal CI jobs, but you are also allowed to use
+different types of structures to leverage special YAML features.
 
 ## Special YAML features
 
@@ -906,12 +1068,11 @@ Read more about the various [YAML features](https://learnxinyminutes.com/docs/ya
 
 ### Anchors
 
->**Note:**
-Introduced in GitLab 8.6 and GitLab Runner v1.1.1.
+> Introduced in GitLab 8.6 and GitLab Runner v1.1.1.
 
 YAML also has a handy feature called 'anchors', which let you easily duplicate
 content across your document. Anchors can be used to duplicate/inherit
-properties, and is a perfect example to be used with [hidden jobs](#hidden-jobs)
+properties, and is a perfect example to be used with [hidden keys](#hidden-keys)
 to provide templates for your jobs.
 
 The following example uses anchors and map merging. It will create two jobs,
@@ -919,7 +1080,7 @@ The following example uses anchors and map merging. It will create two jobs,
 having their own custom `script` defined:
 
 ```yaml
-.job_template: &job_definition  # Hidden job that defines an anchor named 'job_definition'
+.job_template: &job_definition  # Hidden key that defines an anchor named 'job_definition'
   image: ruby:2.1
   services:
     - postgres
@@ -985,11 +1146,11 @@ directive defined in `.postgres_services` and `.mysql_services` respectively:
     - ruby
 
 test:postgres:
-  << *job_definition
+  <<: *job_definition
   services: *postgres_definition
 
 test:mysql:
-  << *job_definition
+  <<: *job_definition
   services: *mysql_definition
 ```
 
@@ -1025,7 +1186,14 @@ test:mysql:
     - ruby
 ```
 
-You can see that the hidden jobs are conveniently used as templates.
+You can see that the hidden keys are conveniently used as templates.
+
+## Triggers
+
+Triggers can be used to force a rebuild of a specific branch, tag or commit,
+with an API call.
+
+[Read more in the triggers documentation.](../triggers/README.md)
 
 ## Validate the .gitlab-ci.yml
 
@@ -1043,3 +1211,7 @@ Visit the [examples README][examples] to see a list of examples using GitLab
 CI with various languages.
 
 [examples]: ../examples/README.md
+[ce-6323]: https://gitlab.com/gitlab-org/gitlab-ce/merge_requests/6323
+[environment]: ../environments.md
+[ce-6669]: https://gitlab.com/gitlab-org/gitlab-ce/merge_requests/6669
+[variables]: ../variables/README.md

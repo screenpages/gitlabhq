@@ -6,6 +6,7 @@
 #
 module Issuable
   extend ActiveSupport::Concern
+  include CacheMarkdownField
   include Participable
   include Mentionable
   include Subscribable
@@ -13,11 +14,14 @@ module Issuable
   include Awardable
 
   included do
+    cache_markdown_field :title, pipeline: :single_line
+    cache_markdown_field :description
+
     belongs_to :author, class_name: "User"
     belongs_to :assignee, class_name: "User"
     belongs_to :updated_by, class_name: "User"
     belongs_to :milestone
-    has_many :notes, as: :noteable, dependent: :destroy do
+    has_many :notes, as: :noteable, inverse_of: :noteable, dependent: :destroy do
       def authors_loaded?
         # We check first if we're loaded to not load unnecessarily.
         loaded? && to_a.all? { |note| note.association(:author).loaded? }
@@ -28,9 +32,12 @@ module Issuable
         loaded? && to_a.all? { |note| note.association(:award_emoji).loaded? }
       end
     end
+
     has_many :label_links, as: :target, dependent: :destroy
     has_many :labels, through: :label_links
     has_many :todos, as: :target, dependent: :destroy
+
+    has_one :metrics
 
     validates :author, presence: true
     validates :title, presence: true, length: { within: 0..255 }
@@ -81,11 +88,18 @@ module Issuable
     acts_as_paranoid
 
     after_save :update_assignee_cache_counts, if: :assignee_id_changed?
+    after_save :record_metrics
 
     def update_assignee_cache_counts
       # make sure we flush the cache for both the old *and* new assignee
       User.find(assignee_id_was).update_cache_counts if assignee_id_was
       assignee.update_cache_counts if assignee
+    end
+
+    # We want to use optimistic lock for cases when only title or description are involved
+    # http://api.rubyonrails.org/classes/ActiveRecord/Locking/Optimistic.html
+    def locking_enabled?
+      title_changed? || description_changed?
     end
   end
 
@@ -131,7 +145,16 @@ module Issuable
     end
 
     def order_labels_priority(excluded_labels: [])
-      select("#{table_name}.*, (#{highest_label_priority(excluded_labels).to_sql}) AS highest_priority").
+      params = {
+        target_type: name,
+        target_column: "#{table_name}.id",
+        project_column: "#{table_name}.#{project_foreign_key}",
+        excluded_labels: excluded_labels
+      }
+
+      highest_priority = highest_label_priority(params).to_sql
+
+      select("#{table_name}.*, (#{highest_priority}) AS highest_priority").
         group(arel_table[:id]).
         reorder(Gitlab::Database.nulls_last_order('highest_priority', 'ASC'))
     end
@@ -158,20 +181,6 @@ module Issuable
       end
 
       grouping_columns
-    end
-
-    private
-
-    def highest_label_priority(excluded_labels)
-      query = Label.select(Label.arel_table[:priority].minimum).
-        joins(:label_links).
-        where(label_links: { target_type: name }).
-        where("label_links.target_id = #{table_name}.id").
-        reorder(nil)
-
-      query.where.not(title: excluded_labels) if excluded_labels.present?
-
-      query
     end
   end
 
@@ -227,18 +236,6 @@ module Issuable
     labels.order('title ASC').pluck(:title)
   end
 
-  def remove_labels
-    labels.delete_all
-  end
-
-  def add_labels_by_names(label_names)
-    label_names.each do |label_name|
-      label = project.labels.create_with(color: Label::DEFAULT_COLOR).
-        find_or_create_by(title: label_name.strip)
-      self.labels << label
-    end
-  end
-
   # Convert this Issuable class name to a format usable by Ability definitions
   #
   # Examples:
@@ -286,5 +283,10 @@ module Issuable
   #
   def can_move?(*)
     false
+  end
+
+  def record_metrics
+    metrics = self.metrics || create_metrics
+    metrics.record!
   end
 end

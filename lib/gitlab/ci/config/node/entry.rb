@@ -8,30 +8,34 @@ module Gitlab
         class Entry
           class InvalidError < StandardError; end
 
-          attr_reader :config
+          attr_reader :config, :metadata
           attr_accessor :key, :parent, :description
 
-          def initialize(config)
+          def initialize(config, **metadata)
             @config = config
-            @nodes = {}
+            @metadata = metadata
+            @entries = {}
+
             @validator = self.class.validator.new(self)
-            @validator.validate
+            @validator.validate(:new)
           end
 
-          def process!
-            return if leaf?
+          def [](key)
+            @entries[key] || Node::Undefined.new
+          end
+
+          def compose!(deps = nil)
             return unless valid?
 
-            compose!
-            process_nodes!
-          end
-
-          def nodes
-            @nodes.values
+            yield if block_given?
           end
 
           def leaf?
-            self.class.nodes.none?
+            @entries.none?
+          end
+
+          def descendants
+            @entries.values
           end
 
           def ancestors
@@ -43,47 +47,34 @@ module Gitlab
           end
 
           def errors
-            @validator.messages + nodes.flat_map(&:errors)
+            @validator.messages + descendants.flat_map(&:errors)
           end
 
           def value
             if leaf?
               @config
             else
-              defined = @nodes.select { |_key, value| value.defined? }
-              Hash[defined.map { |key, node| [key, node.value] }]
+              meaningful = @entries.select do |_key, value|
+                value.specified? && value.relevant?
+              end
+
+              Hash[meaningful.map { |key, entry| [key, entry.value] }]
             end
           end
 
-          def defined?
+          def specified?
+            true
+          end
+
+          def relevant?
             true
           end
 
           def self.default
           end
 
-          def self.nodes
-            {}
-          end
-
           def self.validator
             Validator
-          end
-
-          private
-
-          def compose!
-            self.class.nodes.each do |key, essence|
-              @nodes[key] = create_node(key, essence)
-            end
-          end
-
-          def process_nodes!
-            nodes.each(&:process!)
-          end
-
-          def create_node(key, essence)
-            raise NotImplementedError
           end
         end
       end

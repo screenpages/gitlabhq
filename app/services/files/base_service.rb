@@ -9,12 +9,17 @@ module Files
 
       @commit_message = params[:commit_message]
       @file_path      = params[:file_path]
+      @previous_path  = params[:previous_path]
       @file_content   = if params[:file_content_encoding] == 'base64'
                           Base64.decode64(params[:file_content])
                         else
                           params[:file_content]
                         end
+      @last_commit_sha = params[:last_commit_sha]
+      @author_email    = params[:author_email]
+      @author_name     = params[:author_name]
 
+      # Validate parameters
       validate
 
       # Create new branch if it different from source_branch
@@ -22,8 +27,9 @@ module Files
         create_target_branch
       end
 
-      if commit
-        success
+      result = commit
+      if result
+        success(result: result)
       else
         error('Something went wrong. Your changes were not committed')
       end
@@ -37,12 +43,18 @@ module Files
       @source_branch != @target_branch || @source_project != @project
     end
 
+    def file_has_changed?
+      return false unless @last_commit_sha && last_commit
+
+      @last_commit_sha != last_commit.sha
+    end
+
     def raise_error(message)
       raise ValidationError.new(message)
     end
 
     def validate
-      allowed = ::Gitlab::GitAccess.new(current_user, project, 'web').can_push_to_branch?(@target_branch)
+      allowed = ::Gitlab::UserAccess.new(current_user, project: project).can_push_to_branch?(@target_branch)
 
       unless allowed
         raise_error("You are not allowed to push into this branch")

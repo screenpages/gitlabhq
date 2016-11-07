@@ -1,9 +1,8 @@
 class RepositoryArchiveCacheWorker
   include Sidekiq::Worker
-
-  sidekiq_options queue: :default
+  include CronjobQueue
 
   def perform
-    Repository.clean_old_archives
+    RepositoryArchiveCleanUpService.new.execute
   end
 end

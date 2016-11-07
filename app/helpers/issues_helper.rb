@@ -13,38 +13,6 @@ module IssuesHelper
     OpenStruct.new(id: 0, title: 'None (backlog)', name: 'Unassigned')
   end
 
-  def url_for_project_issues(project = @project, options = {})
-    return '' if project.nil?
-
-    url =
-      if options[:only_path]
-        project.issues_tracker.project_path
-      else
-        project.issues_tracker.project_url
-      end
-
-    # Ensure we return a valid URL to prevent possible XSS.
-    URI.parse(url).to_s
-  rescue URI::InvalidURIError
-    ''
-  end
-
-  def url_for_new_issue(project = @project, options = {})
-    return '' if project.nil?
-
-    url =
-      if options[:only_path]
-        project.issues_tracker.new_issue_path
-      else
-        project.issues_tracker.new_issue_url
-      end
-
-    # Ensure we return a valid URL to prevent possible XSS.
-    URI.parse(url).to_s
-  rescue URI::InvalidURIError
-    ''
-  end
-
   def url_for_issue(issue_iid, project = @project, options = {})
     return '' if project.nil?
 
@@ -145,10 +113,17 @@ module IssuesHelper
     end
   end
 
-  def award_user_list(awards, current_user)
-    awards.map do |award|
-      award.user == current_user ? 'me' : award.user.name
-    end.join(', ')
+  def award_user_list(awards, current_user, limit: 10)
+    names = awards.map do |award|
+      award.user == current_user ? 'You' : award.user.name
+    end
+
+    current_user_name = names.delete('You')
+    names = names.insert(0, current_user_name).compact.first(limit)
+
+    names << "#{awards.size - names.size} more." if awards.size > names.size
+
+    names.to_sentence
   end
 
   def award_active_class(awards, current_user)

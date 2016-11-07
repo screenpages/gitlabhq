@@ -13,7 +13,7 @@ GET /application/settings
 ```
 
 ```bash
-curl -H "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" https://gitlab.example.com/api/v3/application/settings
+curl --header "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" https://gitlab.example.com/api/v3/application/settings
 ```
 
 Example response:
@@ -33,13 +33,17 @@ Example response:
    "session_expire_delay" : 10080,
    "home_page_url" : null,
    "default_snippet_visibility" : 0,
-   "restricted_signup_domains" : [],
+   "domain_whitelist" : [],
+   "domain_blacklist_enabled" : false,
+   "domain_blacklist" : [],
    "created_at" : "2016-01-04T15:44:55.176Z",
    "default_project_visibility" : 0,
    "gravatar_enabled" : true,
    "sign_in_text" : null,
    "container_registry_token_expire_delay": 5,
-   "repository_storage": "default"
+   "repository_storage": "default",
+   "koding_enabled": false,
+   "koding_url": null
 }
 ```
 
@@ -63,15 +67,19 @@ PUT /application/settings
 | `session_expire_delay` | integer | no | Session duration in minutes. GitLab restart is required to apply changes |
 | `default_project_visibility` | integer | no | What visibility level new projects receive. Can take `0` _(Private)_, `1` _(Internal)_ and `2` _(Public)_ as a parameter. Default is `0`.|
 | `default_snippet_visibility` | integer | no | What visibility level new snippets receive. Can take `0` _(Private)_, `1` _(Internal)_ and `2` _(Public)_ as a parameter. Default is `0`.|
-| `restricted_signup_domains` | array of strings | no | Force people to use only corporate emails for sign-up. Default is null, meaning there is no restriction. |
+| `domain_whitelist` | array of strings | no | Force people to use only corporate emails for sign-up. Default is null, meaning there is no restriction. |
+| `domain_blacklist_enabled` | boolean | no | Enable/disable the `domain_blacklist` |
+| `domain_blacklist` | array of strings | yes (if `domain_blacklist_enabled` is `true`) | People trying to sign-up with emails from this domain will not be allowed to do so. |
 | `user_oauth_applications` | boolean | no | Allow users to register any application to use GitLab as an OAuth provider |
 | `after_sign_out_path` | string | no | Where to redirect users after logout |
 | `container_registry_token_expire_delay` | integer | no | Container Registry token duration in minutes |
 | `repository_storage` | string | no | Storage path for new projects. The value should be the name of one of the repository storage paths defined in your gitlab.yml |
-| `enabled_git_access_protocol` | string | no | Enabled protocols for Git access. Allowed values are: `ssh`, `http`, and `nil` to allow both protocols.
+| `enabled_git_access_protocol` | string | no | Enabled protocols for Git access. Allowed values are: `ssh`, `http`, and `nil` to allow both protocols. |
+| `koding_enabled` | boolean | no | Enable Koding integration. Default is `false`. |
+| `koding_url` | string | yes (if `koding_enabled` is `true`) |  The Koding instance URL for integration. |
 
 ```bash
-curl -X PUT -H "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" https://gitlab.example.com/api/v3/application/settings?signup_enabled=false&default_project_visibility=1
+curl --request PUT --header "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" https://gitlab.example.com/api/v3/application/settings?signup_enabled=false&default_project_visibility=1
 ```
 
 Example response:
@@ -93,10 +101,14 @@ Example response:
   "session_expire_delay": 10080,
   "default_project_visibility": 1,
   "default_snippet_visibility": 0,
-  "restricted_signup_domains": [],
+  "domain_whitelist": [],
+  "domain_blacklist_enabled" : false,
+  "domain_blacklist" : [],
   "user_oauth_applications": true,
   "after_sign_out_path": "",
   "container_registry_token_expire_delay": 5,
-  "repository_storage": "default"
+  "repository_storage": "default",
+  "koding_enabled": false,
+  "koding_url": null
 }
 ```

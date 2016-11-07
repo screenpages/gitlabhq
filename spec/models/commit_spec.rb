@@ -13,6 +13,26 @@ describe Commit, models: true do
     it { is_expected.to include_module(StaticModel) }
   end
 
+  describe '#author' do
+    it 'looks up the author in a case-insensitive way' do
+      user = create(:user, email: commit.author_email.upcase)
+      expect(commit.author).to eq(user)
+    end
+
+    it 'caches the author' do
+      user = create(:user, email: commit.author_email)
+      expect(RequestStore).to receive(:active?).twice.and_return(true)
+      expect_any_instance_of(Commit).to receive(:find_author_by_any_email).and_call_original
+
+      expect(commit.author).to eq(user)
+      key = "commit_author:#{commit.author_email}"
+      expect(RequestStore.store[key]).to eq(user)
+
+      expect(commit.author).to eq(user)
+      RequestStore.store.clear
+    end
+  end
+
   describe '#to_reference' do
     it 'returns a String reference to the object' do
       expect(commit.to_reference).to eq commit.id
@@ -63,6 +83,27 @@ eos
 
       allow(commit).to receive(:safe_message).and_return(message)
       expect(commit.title).to eq(message.split("\n").first)
+    end
+  end
+
+  describe '#full_title' do
+    it "returns no_commit_message when safe_message is blank" do
+      allow(commit).to receive(:safe_message).and_return('')
+      expect(commit.full_title).to eq("--no commit message")
+    end
+
+    it "returns entire message if there is no newline" do
+      message = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sodales id felis id blandit. Vivamus egestas lacinia lacus, sed rutrum mauris.'
+
+      allow(commit).to receive(:safe_message).and_return(message)
+      expect(commit.full_title).to eq(message)
+    end
+
+    it "returns first line of message if there is a newLine" do
+      message = commit.safe_message.split(" ").first
+
+      allow(commit).to receive(:safe_message).and_return(message + "\n" + message)
+      expect(commit.full_title).to eq(message)
     end
   end
 
@@ -123,10 +164,10 @@ eos
     let(:data) { commit.hook_attrs(with_changed_files: true) }
 
     it { expect(data).to be_a(Hash) }
-    it { expect(data[:message]).to include('Add submodule from gitlab.com') }
-    it { expect(data[:timestamp]).to eq('2014-02-27T11:01:38+02:00') }
-    it { expect(data[:added]).to eq(["gitlab-grack"]) }
-    it { expect(data[:modified]).to eq([".gitmodules"]) }
+    it { expect(data[:message]).to include('adds bar folder and branch-test text file to check Repository merged_to_root_ref method') }
+    it { expect(data[:timestamp]).to eq('2016-09-27T14:37:46+00:00') }
+    it { expect(data[:added]).to eq(["bar/branch-test.txt"]) }
+    it { expect(data[:modified]).to eq([]) }
     it { expect(data[:removed]).to eq([]) }
   end
 
@@ -212,6 +253,7 @@ eos
     it 'returns the URI type at the given path' do
       expect(commit.uri_type('files/html')).to be(:tree)
       expect(commit.uri_type('files/images/logo-black.png')).to be(:raw)
+      expect(project.commit('video').uri_type('files/videos/intro.mp4')).to be(:raw)
       expect(commit.uri_type('files/js/application.js')).to be(:blob)
     end
 

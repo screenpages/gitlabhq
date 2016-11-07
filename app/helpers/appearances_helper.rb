@@ -16,7 +16,7 @@ module AppearancesHelper
   end
 
   def brand_text
-    markdown(brand_item.description)
+    markdown_field(brand_item, :description)
   end
 
   def brand_item
@@ -31,7 +31,9 @@ module AppearancesHelper
     end
   end
 
-  def navbar_icon(icon_name, size: 16)
+  def custom_icon(icon_name, size: 16)
+    # We can't simply do the below, because there are some .erb SVGs.
+    #  File.read(Rails.root.join("app/views/shared/icons/_#{icon_name}.svg")).html_safe
     render "shared/icons/#{icon_name}.svg", size: size
   end
 end

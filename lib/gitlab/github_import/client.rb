@@ -52,7 +52,7 @@ module Gitlab
 
       def method_missing(method, *args, &block)
         if api.respond_to?(method)
-          request { api.send(method, *args, &block) }
+          request(method, *args, &block)
         else
           super(method, *args, &block)
         end
@@ -78,30 +78,52 @@ module Gitlab
 
       def rate_limit
         api.rate_limit!
+      # GitHub Rate Limit API returns 404 when the rate limit is
+      # disabled. In this case we just want to return gracefully
+      # instead of spitting out an error.
+      rescue Octokit::NotFound
+        nil
+      end
+
+      def has_rate_limit?
+        return @has_rate_limit if defined?(@has_rate_limit)
+
+        @has_rate_limit = rate_limit.present?
       end
 
       def rate_limit_exceed?
-        rate_limit.remaining <= GITHUB_SAFE_REMAINING_REQUESTS
+        has_rate_limit? && rate_limit.remaining <= GITHUB_SAFE_REMAINING_REQUESTS
       end
 
       def rate_limit_sleep_time
         rate_limit.resets_in + GITHUB_SAFE_SLEEP_TIME
       end
 
-      def request
+      def request(method, *args, &block)
         sleep rate_limit_sleep_time if rate_limit_exceed?
 
-        data = yield
+        data = api.send(method, *args)
+        return data unless data.is_a?(Array)
 
         last_response = api.last_response
 
+        if block_given?
+          yield data
+          # api.last_response could change while we're yielding (e.g. fetching labels for each PR)
+          # so we cache our own last response
+          each_response_page(last_response, &block)
+        else
+          each_response_page(last_response) { |page| data.concat(page) }
+          data
+        end
+      end
+
+      def each_response_page(last_response)
         while last_response.rels[:next]
           sleep rate_limit_sleep_time if rate_limit_exceed?
           last_response = last_response.rels[:next].get
-          data.concat(last_response.data) if last_response.data.is_a?(Array)
+          yield last_response.data if last_response.data.is_a?(Array)
         end
-
-        data
       end
     end
   end

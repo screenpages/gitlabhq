@@ -18,11 +18,14 @@ module Gitlab
         @map ||=
           begin
             @exported_members.inject(missing_keys_tracking_hash) do |hash, member|
-              existing_user = User.where(find_project_user_query(member)).first
-              old_user_id = member['user']['id']
-              if existing_user && add_user_as_team_member(existing_user, member)
-                hash[old_user_id] = existing_user.id
+              if member['user']
+                old_user_id = member['user']['id']
+                existing_user = User.where(find_project_user_query(member)).first
+                hash[old_user_id] = existing_user.id if existing_user && add_team_member(member, existing_user)
+              else
+                add_team_member(member)
               end
+
               hash
             end
           end
@@ -45,14 +48,19 @@ module Gitlab
         ProjectMember.create!(user: @user, access_level: ProjectMember::MASTER, source_id: @project.id, importing: true)
       end
 
-      def add_user_as_team_member(existing_user, member)
+      def add_team_member(member, existing_user = nil)
         member['user'] = existing_user
 
         ProjectMember.create(member_hash(member)).persisted?
       end
 
       def member_hash(member)
-        member.except('id').merge(source_id: @project.id, importing: true)
+        parsed_hash(member).merge('source_id' => @project.id, 'importing' => true)
+      end
+
+      def parsed_hash(member)
+        Gitlab::ImportExport::AttributeCleaner.clean(relation_hash: member.deep_stringify_keys,
+                                                     relation_class: ProjectMember)
       end
 
       def find_project_user_query(member)

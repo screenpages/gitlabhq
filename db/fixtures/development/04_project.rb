@@ -3,11 +3,11 @@ require 'sidekiq/testing'
 Sidekiq::Testing.inline! do
   Gitlab::Seeder.quiet do
     project_urls = [
-      'https://github.com/documentcloud/underscore.git',
+      'https://gitlab.com/gitlab-org/gitlab-test.git',
       'https://gitlab.com/gitlab-org/gitlab-ce.git',
       'https://gitlab.com/gitlab-org/gitlab-ci.git',
       'https://gitlab.com/gitlab-org/gitlab-shell.git',
-      'https://gitlab.com/gitlab-org/gitlab-test.git',
+      'https://github.com/documentcloud/underscore.git',
       'https://github.com/twitter/flight.git',
       'https://github.com/twitter/typeahead.js.git',
       'https://github.com/h5bp/html5-boilerplate.git',
@@ -20,7 +20,6 @@ Sidekiq::Testing.inline! do
       'https://github.com/airbnb/javascript.git',
       'https://github.com/tessalt/echo-chamber-js.git',
       'https://github.com/atom/atom.git',
-      'https://github.com/ipselon/react-ui-builder.git',
       'https://github.com/mattermost/platform.git',
       'https://github.com/purifycss/purifycss.git',
       'https://github.com/facebook/nuclide.git',
@@ -39,12 +38,7 @@ Sidekiq::Testing.inline! do
     ]
 
     # You can specify how many projects you need during seed execution
-    size = if ENV['SIZE'].present?
-             ENV['SIZE'].to_i
-           else
-             8
-           end
-
+    size = ENV['SIZE'].present? ? ENV['SIZE'].to_i : 8
 
     project_urls.first(size).each_with_index do |url, i|
       group_path, project_path = url.split('/')[-2..-1]

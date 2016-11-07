@@ -4,30 +4,43 @@ describe Projects::HousekeepingService do
   subject { Projects::HousekeepingService.new(project) }
   let(:project) { create :project }
 
-  describe 'execute' do
-    before do
-      project.pushes_since_gc = 3
-      project.save!
-    end
+  before do
+    project.reset_pushes_since_gc
+  end
 
+  after do
+    project.reset_pushes_since_gc
+  end
+
+  describe '#execute' do
     it 'enqueues a sidekiq job' do
       expect(subject).to receive(:try_obtain_lease).and_return(true)
-      expect(GitlabShellOneShotWorker).to receive(:perform_async).with(:gc, project.repository_storage_path, project.path_with_namespace)
+      expect(GitGarbageCollectWorker).to receive(:perform_async).with(project.id)
 
       subject.execute
-      expect(project.pushes_since_gc).to eq(0)
+      expect(project.reload.pushes_since_gc).to eq(0)
     end
 
-    it 'does not enqueue a job when no lease can be obtained' do
-      expect(subject).to receive(:try_obtain_lease).and_return(false)
-      expect(GitlabShellOneShotWorker).not_to receive(:perform_async)
+    context 'when no lease can be obtained' do
+      before(:each) do
+        expect(subject).to receive(:try_obtain_lease).and_return(false)
+      end
 
-      expect { subject.execute }.to raise_error(Projects::HousekeepingService::LeaseTaken)
-      expect(project.pushes_since_gc).to eq(0)
+      it 'does not enqueue a job' do
+        expect(GitGarbageCollectWorker).not_to receive(:perform_async)
+
+        expect { subject.execute }.to raise_error(Projects::HousekeepingService::LeaseTaken)
+      end
+
+      it 'does not reset pushes_since_gc' do
+        expect do
+          expect { subject.execute }.to raise_error(Projects::HousekeepingService::LeaseTaken)
+        end.not_to change { project.pushes_since_gc }
+      end
     end
   end
 
-  describe 'needed?' do
+  describe '#needed?' do
     it 'when the count is low enough' do
       expect(subject.needed?).to eq(false)
     end
@@ -38,11 +51,11 @@ describe Projects::HousekeepingService do
     end
   end
 
-  describe 'increment!' do
+  describe '#increment!' do
     it 'increments the pushes_since_gc counter' do
-      expect(project.pushes_since_gc).to eq(0)
-      subject.increment!
-      expect(project.pushes_since_gc).to eq(1)
+      expect do
+        subject.increment!
+      end.to change { project.pushes_since_gc }.from(0).to(1)
     end
   end
 end

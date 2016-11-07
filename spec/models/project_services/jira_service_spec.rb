@@ -1,23 +1,3 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#
-
 require 'spec_helper'
 
 describe JiraService, models: true do
@@ -50,6 +30,15 @@ describe JiraService, models: true do
     end
   end
 
+  describe '#reference_pattern' do
+    it_behaves_like 'allows project key on reference pattern'
+
+    it 'does not allow # on the code' do
+      expect(subject.reference_pattern.match('#123')).to be_nil
+      expect(subject.reference_pattern.match('1#23#12')).to be_nil
+    end
+  end
+
   describe "Execute" do
     let(:user)    { create(:user) }
     let(:project) { create(:project) }
@@ -66,7 +55,7 @@ describe JiraService, models: true do
         password: 'gitlab_jira_password'
       )
       @jira_service.save # will build API URL, as api_url was not specified above
-      @sample_data = Gitlab::PushDataBuilder.build_sample(project, user)
+      @sample_data = Gitlab::DataBuilder::Push.build_sample(project, user)
       # https://github.com/bblimke/webmock#request-with-basic-authentication
       @api_url = 'http://gitlab_jira_username:gitlab_jira_password@jira.example.com/rest/api/2/issue/JIRA-123/transitions'
       @comment_url = 'http://gitlab_jira_username:gitlab_jira_password@jira.example.com/rest/api/2/issue/JIRA-123/comment'
@@ -75,7 +64,7 @@ describe JiraService, models: true do
       WebMock.stub_request(:post, @comment_url)
     end
 
-    it "should call JIRA API" do
+    it "calls JIRA API" do
       @jira_service.execute(merge_request,
                             ExternalIssue.new("JIRA-123", project))
       expect(WebMock).to have_requested(:post, @comment_url).with(
@@ -128,7 +117,7 @@ describe JiraService, models: true do
         expect(@jira_service.api_url).to eq("http://jira_edited.example.com/rest/api/2")
       end
 
-      it "should reset password if url changed, even if setter called multiple times" do
+      it "resets password if url changed, even if setter called multiple times" do
         @jira_service.api_url = 'http://jira1.example.com/rest/api/2'
         @jira_service.api_url = 'http://jira1.example.com/rest/api/2'
         @jira_service.save
@@ -181,7 +170,7 @@ describe JiraService, models: true do
         @service.destroy!
       end
 
-      it 'should be initialized' do
+      it 'is initialized' do
         expect(@service.title).to eq('JIRA')
         expect(@service.description).to eq("Jira issue tracker")
       end
@@ -197,7 +186,7 @@ describe JiraService, models: true do
         @service.destroy!
       end
 
-      it "should be correct" do
+      it "is correct" do
         expect(@service.title).to eq('Jira One')
         expect(@service.description).to eq('Jira One issue tracker')
       end
@@ -225,7 +214,7 @@ describe JiraService, models: true do
         @service.destroy!
       end
 
-      it 'should be prepopulated with the settings' do
+      it 'is prepopulated with the settings' do
         expect(@service.properties["project_url"]).to eq('http://jira.sample/projects/project_a')
         expect(@service.properties["issues_url"]).to eq("http://jira.sample/issues/:id")
         expect(@service.properties["new_issue_url"]).to eq("http://jira.sample/projects/project_a/issues/new")

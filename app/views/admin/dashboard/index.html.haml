@@ -63,6 +63,11 @@
           Reply by email
           %span.light.pull-right
             = boolean_to_icon Gitlab::IncomingEmail.enabled?
+        %p
+          Container Registry
+          %span.light.pull-right
+            = boolean_to_icon Gitlab.config.registry.enabled
+
       .col-md-4
         %h4
           Components
@@ -79,6 +84,10 @@
           GitLab Shell
           %span.pull-right
             = Gitlab::Shell.new.version
+        %p
+          GitLab Workhorse
+          %span.pull-right
+            = Gitlab::Workhorse.version
         %p
           GitLab API
           %span.pull-right
@@ -108,7 +117,7 @@
           %h4 Projects
           .data
             = link_to admin_namespaces_projects_path do
-              %h1= number_with_delimiter(Project.count)
+              %h1= number_with_delimiter(Project.cached_count)
             %hr
             = link_to('New Project', new_project_path, class: "btn btn-new")
       .col-sm-4

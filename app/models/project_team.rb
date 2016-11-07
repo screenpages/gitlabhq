@@ -15,9 +15,9 @@ class ProjectTeam
     users, access, current_user = *args
 
     if users.respond_to?(:each)
-      add_users(users, access, current_user)
+      add_users(users, access, current_user: current_user)
     else
-      add_user(users, access, current_user)
+      add_user(users, access, current_user: current_user)
     end
   end
 
@@ -33,17 +33,24 @@ class ProjectTeam
     member
   end
 
-  def add_users(users, access, current_user = nil)
-    ProjectMember.add_users_into_projects(
+  def add_users(users, access_level, current_user: nil, expires_at: nil)
+    ProjectMember.add_users_to_projects(
       [project.id],
       users,
-      access,
-      current_user
+      access_level,
+      current_user: current_user,
+      expires_at: expires_at
     )
   end
 
-  def add_user(user, access, current_user = nil)
-    add_users([user], access, current_user)
+  def add_user(user, access_level, current_user: nil, expires_at: nil)
+    ProjectMember.add_user(
+      project,
+      user,
+      access_level,
+      current_user: current_user,
+      expires_at: expires_at
+    )
   end
 
   # Remove all users from project team
@@ -118,95 +125,92 @@ class ProjectTeam
     max_member_access(user.id) == Gitlab::Access::MASTER
   end
 
-  def member?(user, min_member_access = nil)
-    member = !!find_member(user.id)
-
-    if min_member_access
-      member && max_member_access(user.id) >= min_member_access
-    else
-      member
-    end
+  def member?(user, min_member_access = Gitlab::Access::GUEST)
+    max_member_access(user.id) >= min_member_access
   end
 
   def human_max_access(user_id)
     Gitlab::Access.options_with_owner.key(max_member_access(user_id))
   end
 
-  # This method assumes project and group members are eager loaded for optimal
-  # performance.
+  # Determine the maximum access level for a group of users in bulk.
+  #
+  # Returns a Hash mapping user ID -> maximum access level.
+  def max_member_access_for_user_ids(user_ids)
+    user_ids = user_ids.uniq
+    key = "max_member_access:#{project.id}"
+
+    access = {}
+
+    if RequestStore.active?
+      RequestStore.store[key] ||= {}
+      access = RequestStore.store[key]
+    end
+
+    # Lookup only the IDs we need
+    user_ids = user_ids - access.keys
+
+    if user_ids.present?
+      user_ids.each { |id| access[id] = Gitlab::Access::NO_ACCESS }
+
+      member_access = project.members.access_for_user_ids(user_ids)
+      merge_max!(access, member_access)
+
+      if group
+        group_access = group.members.access_for_user_ids(user_ids)
+        merge_max!(access, group_access)
+      end
+
+      # Each group produces a list of maximum access level per user. We take the
+      # max of the values produced by each group.
+      if project_shared_with_group?
+        project.project_group_links.each do |group_link|
+          invited_access = max_invited_level_for_users(group_link, user_ids)
+          merge_max!(access, invited_access)
+        end
+      end
+    end
+
+    access
+  end
+
   def max_member_access(user_id)
-    access = []
-
-    access += project.members.where(user_id: user_id).has_access.pluck(:access_level)
-
-    if group
-      access += group.members.where(user_id: user_id).has_access.pluck(:access_level)
-    end
-
-    if project.invited_groups.any? && project.allowed_to_share_with_group?
-      access << max_invited_level(user_id)
-    end
-
-    access.compact.max
+    max_member_access_for_user_ids([user_id])[user_id]
   end
 
   private
 
-  def max_invited_level(user_id)
-    project.project_group_links.map do |group_link|
-      invited_group = group_link.group
-      access = invited_group.group_members.find_by(user_id: user_id).try(:access_field)
+  # For a given group, return the maximum access level for the user. This is the min of
+  # the invited access level of the group and the access level of the user within the group.
+  # For example, if the group has been given DEVELOPER access but the member has MASTER access,
+  # the user should receive only DEVELOPER access.
+  def max_invited_level_for_users(group_link, user_ids)
+    invited_group = group_link.group
+    capped_access_level = group_link.group_access
+    access = invited_group.group_members.access_for_user_ids(user_ids)
 
-      # If group member has higher access level we should restrict it
-      # to max allowed access level
-      if access && access > group_link.group_access
-        access = group_link.group_access
-      end
+    # If the user is not in the list, assume he/she does not have access
+    missing_users = user_ids - access.keys
+    missing_users.each { |id| access[id] = Gitlab::Access::NO_ACCESS }
 
-      access
-    end.compact.max
+    # Cap the maximum access by the invited level access
+    access.each { |key, value| access[key] = [value, capped_access_level].min }
   end
 
   def fetch_members(level = nil)
     project_members = project.members
     group_members = group ? group.members : []
-    invited_members = []
-
-    if project.invited_groups.any? && project.allowed_to_share_with_group?
-      project.project_group_links.each do |group_link|
-        invited_group = group_link.group
-        im = invited_group.members
-
-        if level
-          int_level = GroupMember.access_level_roles[level.to_s.singularize.titleize]
-
-          # Skip group members if we ask for masters
-          # but max group access is developers
-          next if int_level > group_link.group_access
-
-          # If we ask for developers and max
-          # group access is developers we need to provide
-          # both group master, developers as devs
-          if int_level == group_link.group_access
-            im.where("access_level >= ?)", group_link.group_access)
-          else
-            im.send(level)
-          end
-        end
-
-        invited_members << im
-      end
-
-      invited_members = invited_members.flatten.compact
-    end
 
     if level
-      project_members = project_members.send(level)
-      group_members = group_members.send(level) if group
+      project_members = project_members.public_send(level)
+      group_members = group_members.public_send(level) if group
     end
 
     user_ids = project_members.pluck(:user_id)
+
+    invited_members = fetch_invited_members(level)
     user_ids.push(*invited_members.map(&:user_id)) if invited_members.any?
+
     user_ids.push(*group_members.pluck(:user_id)) if group
 
     User.where(id: user_ids)
@@ -214,5 +218,43 @@ class ProjectTeam
 
   def group
     project.group
+  end
+
+  def merge_max!(first_hash, second_hash)
+    first_hash.merge!(second_hash) { |_key, old, new| old > new ? old : new }
+  end
+
+  def project_shared_with_group?
+    project.invited_groups.any? && project.allowed_to_share_with_group?
+  end
+
+  def fetch_invited_members(level = nil)
+    invited_members = []
+
+    return invited_members unless project_shared_with_group?
+
+    project.project_group_links.includes(group: [:group_members]).each do |link|
+      invited_group_members = link.group.members
+
+      if level
+        numeric_level = GroupMember.access_level_roles[level.to_s.singularize.titleize]
+
+        # If we're asked for a level that's higher than the group's access,
+        # there's nothing left to do
+        next if numeric_level > link.group_access
+
+        # Make sure we include everyone _above_ the requested level as well
+        invited_group_members =
+          if numeric_level == link.group_access
+            invited_group_members.where("access_level >= ?", link.group_access)
+          else
+            invited_group_members.public_send(level)
+          end
+      end
+
+      invited_members << invited_group_members
+    end
+
+    invited_members.flatten.compact
   end
 end

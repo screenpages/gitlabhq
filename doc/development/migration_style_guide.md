@@ -9,9 +9,10 @@ a big burden for most organizations. For this reason it is important that your
 migrations are written carefully, can be applied online and adhere to the style guide below.
 
 Migrations should not require GitLab installations to be taken offline unless
-_absolutely_ necessary. If a migration requires downtime this should be
-clearly mentioned during the review process as well as being documented in the
-monthly release post.
+_absolutely_ necessary - see the ["What Requires Downtime?"](what_requires_downtime.md)
+page. If a migration requires downtime, this should be clearly mentioned during
+the review process, as well as being documented in the monthly release post. For
+more information, see the "Downtime Tagging" section below.
 
 When writing your migrations, also consider that databases might have stale data
 or inconsistencies and guard for that. Try to make as little assumptions as possible
@@ -20,35 +21,34 @@ about the state of the database.
 Please don't depend on GitLab specific code since it can change in future versions.
 If needed copy-paste GitLab code into the migration to make it forward compatible.
 
-## Comments in the migration
+## Downtime Tagging
 
-Each migration you write needs to have the two following pieces of information
-as comments.
+Every migration must specify if it requires downtime or not, and if it should
+require downtime it must also specify a reason for this. To do so, add the
+following two constants to the migration class' body:
 
-### Online, Offline, errors?
+* `DOWNTIME`: a boolean that when set to `true` indicates the migration requires
+  downtime.
+* `DOWNTIME_REASON`: a String containing the reason for the migration requiring
+  downtime. This constant **must** be set when `DOWNTIME` is set to `true`.
 
-First, you need to provide information on whether the migration can be applied:
+For example:
 
-1. online without errors (works on previous version and new one)
-2. online with errors on old instances after migrating
-3. online with errors on new instances while migrating
-4. offline (needs to happen without app servers to prevent db corruption)
-
-For example: 
-
-```
-# Migration type: online without errors (works on previous version and new one)
+```ruby
 class MyMigration < ActiveRecord::Migration
-...
+  DOWNTIME = true
+  DOWNTIME_REASON = 'This migration requires downtime because ...'
+
+  def change
+    ...
+  end
+end
 ```
 
-It is always preferable to have a migration run online. If you expect the migration
-to take particularly long (for instance, if it loops through all notes),
-this is valuable information to add.
+It is an error (that is, CI will fail) if the `DOWNTIME` constant is missing
+from a migration class.
 
-If you don't provide the information it means that a migration is safe to run online.
-
-### Reversibility
+## Reversibility
 
 Your migration should be reversible. This is very important, as it should
 be possible to downgrade in case of a vulnerability or bugs.
@@ -100,7 +100,7 @@ value of `10` you'd write the following:
 class MyMigration < ActiveRecord::Migration
   include Gitlab::Database::MigrationHelpers
   disable_ddl_transaction!
-  
+
   def up
     add_column_with_default(:projects, :foo, :integer, default: 10)
   end
@@ -109,6 +109,28 @@ class MyMigration < ActiveRecord::Migration
     remove_column(:projects, :foo)
   end
 end
+```
+
+
+## Integer column type
+
+By default, an integer column can hold up to a 4-byte (32-bit) number. That is
+a max value of 2,147,483,647. Be aware of this when creating a column that will
+hold file sizes in byte units. If you are tracking file size in bytes this
+restricts the maximum file size to just over 2GB.
+
+To allow an integer column to hold up to an 8-byte (64-bit) number, explicitly
+set the limit to 8-bytes. This will allow the column to hold a value up to
+9,223,372,036,854,775,807.
+
+Rails migration example:
+
+```
+add_column_with_default(:projects, :foo, :integer, default: 10, limit: 8)
+
+# or
+
+add_column(:projects, :foo, :integer, default: 10, limit: 8)
 ```
 
 ## Testing

@@ -3,8 +3,6 @@ module API
   class Issues < Grape::API
     before { authenticate! }
 
-    helpers ::Gitlab::AkismetHelper
-
     helpers do
       def filter_issues_state(issues, state)
         case state
@@ -20,17 +18,6 @@ module API
 
       def filter_issues_milestone(issues, milestone)
         issues.includes(:milestone).where('milestones.title' => milestone)
-      end
-
-      def create_spam_log(project, current_user, attrs)
-        params = attrs.merge({
-          source_ip: client_ip(env),
-          user_agent: user_agent(env),
-          noteable_type: 'Issue',
-          via_api: true
-        })
-
-        ::CreateSpamLogService.new(project, current_user, params).execute
       end
     end
 
@@ -54,7 +41,8 @@ module API
         issues = current_user.issues.inc_notes_with_associations
         issues = filter_issues_state(issues, params[:state]) unless params[:state].nil?
         issues = filter_issues_labels(issues, params[:labels]) unless params[:labels].nil?
-        issues.reorder(issuable_order_by => issuable_sort)
+        issues = issues.reorder(issuable_order_by => issuable_sort)
+
         present paginate(issues), with: Entities::Issue, current_user: current_user
       end
     end
@@ -86,7 +74,11 @@ module API
         params[:group_id] = group.id
         params[:milestone_title] = params.delete(:milestone)
         params[:label_name] = params.delete(:labels)
-        params[:sort] = "#{params.delete(:order_by)}_#{params.delete(:sort)}" if params[:order_by] && params[:sort]
+
+        if params[:order_by] || params[:sort]
+          # The Sortable concern takes 'created_desc', not 'created_at_desc' (for example)
+          params[:sort] = "#{issuable_order_by.sub('_at', '')}_#{issuable_sort}"
+        end
 
         issues = IssuesFinder.new(current_user, params).execute
 
@@ -126,7 +118,8 @@ module API
           issues = filter_issues_milestone(issues, params[:milestone])
         end
 
-        issues.reorder(issuable_order_by => issuable_sort)
+        issues = issues.reorder(issuable_order_by => issuable_sort)
+
         present paginate(issues), with: Entities::Issue, current_user: current_user
       end
 
@@ -152,12 +145,14 @@ module API
       #   milestone_id (optional) - The ID of a milestone to assign issue
       #   labels (optional)       - The labels of an issue
       #   created_at (optional)   - Date time string, ISO 8601 formatted
+      #   due_date (optional)     - Date time string in the format YEAR-MONTH-DAY
+      #   confidential (optional) - Boolean parameter if the issue should be confidential
       # Example Request:
       #   POST /projects/:id/issues
-      post ":id/issues" do
+      post ':id/issues' do
         required_attributes! [:title]
 
-        keys = [:title, :description, :assignee_id, :milestone_id]
+        keys = [:title, :description, :assignee_id, :milestone_id, :due_date, :confidential]
         keys << :created_at if current_user.admin? || user_project.owner == current_user
         attrs = attributes_for_keys(keys)
 
@@ -166,23 +161,19 @@ module API
           render_api_error!({ labels: errors }, 400)
         end
 
-        project = user_project
-        text = [attrs[:title], attrs[:description]].reject(&:blank?).join("\n")
+        attrs[:labels] = params[:labels] if params[:labels]
 
-        if check_for_spam?(project, current_user) && is_spam?(env, current_user, text)
-          create_spam_log(project, current_user, attrs)
+        # Convert and filter out invalid confidential flags
+        attrs['confidential'] = to_boolean(attrs['confidential'])
+        attrs.delete('confidential') if attrs['confidential'].nil?
+
+        issue = ::Issues::CreateService.new(user_project, current_user, attrs.merge(request: request, api: true)).execute
+
+        if issue.spam?
           render_api_error!({ error: 'Spam detected' }, 400)
         end
 
-        issue = ::Issues::CreateService.new(project, current_user, attrs).execute
-
         if issue.valid?
-          # Find or create labels and attach to issue. Labels are valid because
-          # we already checked its name, so there can't be an error here
-          if params[:labels].present?
-            issue.add_labels_by_names(params[:labels].split(','))
-          end
-
           present issue, with: Entities::Issue, current_user: current_user
         else
           render_validation_error!(issue)
@@ -201,12 +192,14 @@ module API
       #   labels (optional) - The labels of an issue
       #   state_event (optional) - The state event of an issue (close|reopen)
       #   updated_at (optional) - Date time string, ISO 8601 formatted
+      #   due_date (optional)     - Date time string in the format YEAR-MONTH-DAY
+      #   confidential (optional) - Boolean parameter if the issue should be confidential
       # Example Request:
       #   PUT /projects/:id/issues/:issue_id
-      put ":id/issues/:issue_id" do
+      put ':id/issues/:issue_id' do
         issue = user_project.issues.find(params[:issue_id])
         authorize! :update_issue, issue
-        keys = [:title, :description, :assignee_id, :milestone_id, :state_event]
+        keys = [:title, :description, :assignee_id, :milestone_id, :state_event, :due_date, :confidential]
         keys << :updated_at if current_user.admin? || user_project.owner == current_user
         attrs = attributes_for_keys(keys)
 
@@ -215,17 +208,15 @@ module API
           render_api_error!({ labels: errors }, 400)
         end
 
+        attrs[:labels] = params[:labels] if params[:labels]
+
+        # Convert and filter out invalid confidential flags
+        attrs['confidential'] = to_boolean(attrs['confidential'])
+        attrs.delete('confidential') if attrs['confidential'].nil?
+
         issue = ::Issues::UpdateService.new(user_project, current_user, attrs).execute(issue)
 
         if issue.valid?
-          # Find or create labels and attach to issue. Labels are valid because
-          # we already checked its name, so there can't be an error here
-          if params[:labels] && can?(current_user, :admin_issue, user_project)
-            issue.remove_labels
-            # Create and add labels to the new created issue
-            issue.add_labels_by_names(params[:labels].split(','))
-          end
-
           present issue, with: Entities::Issue, current_user: current_user
         else
           render_validation_error!(issue)

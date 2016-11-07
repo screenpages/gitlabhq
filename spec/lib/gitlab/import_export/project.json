@@ -1,11 +1,22 @@
 {
   "description": "Nisi et repellendus ut enim quo accusamus vel magnam.",
-  "issues_enabled": true,
-  "merge_requests_enabled": true,
-  "wiki_enabled": true,
-  "snippets_enabled": false,
   "visibility_level": 10,
   "archived": false,
+  "labels": [
+    {
+      "id": 2,
+      "title": "test2",
+      "color": "#428bca",
+      "project_id": 8,
+      "created_at": "2016-07-22T08:55:44.161Z",
+      "updated_at": "2016-07-22T08:55:44.161Z",
+      "template": false,
+      "description": "",
+      "type": "ProjectLabel",
+      "priorities": [
+      ]
+    }
+  ],
   "issues": [
     {
       "id": 40,
@@ -18,7 +29,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Aliquam enim illo et possimus.",
-      "milestone_id": 18,
       "state": "opened",
       "iid": 10,
       "updated_by_id": null,
@@ -26,6 +36,83 @@
       "deleted_at": null,
       "due_date": null,
       "moved_to_id": null,
+      "test_ee_field": "test",
+      "milestone": {
+        "id": 1,
+        "title": "test milestone",
+        "project_id": 8,
+        "description": "test milestone",
+        "due_date": null,
+        "created_at": "2016-06-14T15:02:04.415Z",
+        "updated_at": "2016-06-14T15:02:04.415Z",
+        "state": "active",
+        "iid": 1,
+        "events": [
+          {
+            "id": 487,
+            "target_type": "Milestone",
+            "target_id": 1,
+            "title": null,
+            "data": null,
+            "project_id": 46,
+            "created_at": "2016-06-14T15:02:04.418Z",
+            "updated_at": "2016-06-14T15:02:04.418Z",
+            "action": 1,
+            "author_id": 18
+          }
+        ]
+      },
+      "label_links": [
+        {
+          "id": 2,
+          "label_id": 2,
+          "target_id": 40,
+          "target_type": "Issue",
+          "created_at": "2016-07-22T08:57:02.840Z",
+          "updated_at": "2016-07-22T08:57:02.840Z",
+          "label": {
+            "id": 2,
+            "title": "test2",
+            "color": "#428bca",
+            "project_id": 8,
+            "created_at": "2016-07-22T08:55:44.161Z",
+            "updated_at": "2016-07-22T08:55:44.161Z",
+            "template": false,
+            "description": "",
+            "type": "ProjectLabel"
+          }
+        },
+        {
+          "id": 3,
+          "label_id": 3,
+          "target_id": 40,
+          "target_type": "Issue",
+          "created_at": "2016-07-22T08:57:02.841Z",
+          "updated_at": "2016-07-22T08:57:02.841Z",
+          "label": {
+            "id": 3,
+            "title": "test3",
+            "color": "#428bca",
+            "group_id": 8,
+            "created_at": "2016-07-22T08:55:44.161Z",
+            "updated_at": "2016-07-22T08:55:44.161Z",
+            "template": false,
+            "description": "",
+            "project_id": null,
+            "type": "GroupLabel",
+            "priorities": [
+              {
+                "id": 1,
+                "project_id": 5,
+                "label_id": 1,
+                "priority": 1,
+                "created_at": "2016-10-18T09:35:43.338Z",
+                "updated_at": "2016-10-18T09:35:43.338Z"
+              }
+            ]
+          }
+        }
+      ],
       "notes": [
         {
           "id": 351,
@@ -232,7 +319,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Voluptate vel reprehenderit facilis omnis voluptas magnam tenetur.",
-      "milestone_id": 16,
       "state": "opened",
       "iid": 9,
       "updated_by_id": null,
@@ -240,6 +326,31 @@
       "deleted_at": null,
       "due_date": null,
       "moved_to_id": null,
+      "milestone": {
+        "id": 1,
+        "title": "test milestone",
+        "project_id": 8,
+        "description": "test milestone",
+        "due_date": null,
+        "created_at": "2016-06-14T15:02:04.415Z",
+        "updated_at": "2016-06-14T15:02:04.415Z",
+        "state": "active",
+        "iid": 1,
+        "events": [
+          {
+            "id": 487,
+            "target_type": "Milestone",
+            "target_id": 1,
+            "title": null,
+            "data": null,
+            "project_id": 46,
+            "created_at": "2016-06-14T15:02:04.418Z",
+            "updated_at": "2016-06-14T15:02:04.418Z",
+            "action": 1,
+            "author_id": 18
+          }
+        ]
+      },
       "notes": [
         {
           "id": 359,
@@ -446,7 +557,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Ea recusandae neque autem tempora.",
-      "milestone_id": 16,
       "state": "closed",
       "iid": 8,
       "updated_by_id": null,
@@ -454,6 +564,27 @@
       "deleted_at": null,
       "due_date": null,
       "moved_to_id": null,
+      "label_links": [
+        {
+          "id": 99,
+          "label_id": 2,
+          "target_id": 38,
+          "target_type": "Issue",
+          "created_at": "2016-07-22T08:57:02.840Z",
+          "updated_at": "2016-07-22T08:57:02.840Z",
+          "label": {
+            "id": 2,
+            "title": "test2",
+            "color": "#428bca",
+            "project_id": 8,
+            "created_at": "2016-07-22T08:55:44.161Z",
+            "updated_at": "2016-07-22T08:55:44.161Z",
+            "template": false,
+            "description": "",
+            "type": "ProjectLabel"
+          }
+        }
+      ],
       "notes": [
         {
           "id": 367,
@@ -660,7 +791,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Maiores architecto quos in dolorem.",
-      "milestone_id": 17,
       "state": "opened",
       "iid": 7,
       "updated_by_id": null,
@@ -874,7 +1004,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Ut aut ut et tenetur velit aut id modi.",
-      "milestone_id": 16,
       "state": "opened",
       "iid": 6,
       "updated_by_id": null,
@@ -1088,7 +1217,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Dicta nisi nihil non ipsa velit.",
-      "milestone_id": 20,
       "state": "closed",
       "iid": 5,
       "updated_by_id": null,
@@ -1302,7 +1430,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Ut et explicabo vel voluptatem consequuntur ut sed.",
-      "milestone_id": 19,
       "state": "closed",
       "iid": 4,
       "updated_by_id": null,
@@ -1516,7 +1643,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Non asperiores velit accusantium voluptate.",
-      "milestone_id": 18,
       "state": "closed",
       "iid": 3,
       "updated_by_id": null,
@@ -1730,7 +1856,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Molestiae corporis magnam et fugit aliquid nulla quia.",
-      "milestone_id": 17,
       "state": "closed",
       "iid": 2,
       "updated_by_id": null,
@@ -1944,7 +2069,6 @@
       "position": 0,
       "branch_name": null,
       "description": "Quod ad architecto qui est sed quia.",
-      "milestone_id": 20,
       "state": "closed",
       "iid": 1,
       "updated_by_id": null,
@@ -2148,10 +2272,32 @@
       ]
     }
   ],
-  "labels": [
-
-  ],
   "milestones": [
+    {
+      "id": 1,
+      "title": "test milestone",
+      "project_id": 8,
+      "description": "test milestone",
+      "due_date": null,
+      "created_at": "2016-06-14T15:02:04.415Z",
+      "updated_at": "2016-06-14T15:02:04.415Z",
+      "state": "active",
+      "iid": 1,
+      "events": [
+        {
+          "id": 487,
+          "target_type": "Milestone",
+          "target_id": 1,
+          "title": null,
+          "data": null,
+          "project_id": 46,
+          "created_at": "2016-06-14T15:02:04.418Z",
+          "updated_at": "2016-06-14T15:02:04.418Z",
+          "action": 1,
+          "author_id": 18
+        }
+      ]
+    },
     {
       "id": 20,
       "title": "v4.0",
@@ -2258,117 +2404,6 @@
           "author_id": 25
         }
       ]
-    },
-    {
-      "id": 18,
-      "title": "v2.0",
-      "project_id": 5,
-      "description": "Error dolorem rerum aut nulla.",
-      "due_date": null,
-      "created_at": "2016-06-14T15:02:04.576Z",
-      "updated_at": "2016-06-14T15:02:04.576Z",
-      "state": "active",
-      "iid": 3,
-      "events": [
-        {
-          "id": 242,
-          "target_type": "Milestone",
-          "target_id": 18,
-          "title": null,
-          "data": null,
-          "project_id": 36,
-          "created_at": "2016-06-14T15:02:04.579Z",
-          "updated_at": "2016-06-14T15:02:04.579Z",
-          "action": 1,
-          "author_id": 1
-        },
-        {
-          "id": 58,
-          "target_type": "Milestone",
-          "target_id": 18,
-          "title": null,
-          "data": null,
-          "project_id": 5,
-          "created_at": "2016-06-14T15:02:04.579Z",
-          "updated_at": "2016-06-14T15:02:04.579Z",
-          "action": 1,
-          "author_id": 22
-        }
-      ]
-    },
-    {
-      "id": 17,
-      "title": "v1.0",
-      "project_id": 5,
-      "description": "Molestiae perspiciatis voluptates doloremque commodi veniam consequatur.",
-      "due_date": null,
-      "created_at": "2016-06-14T15:02:04.569Z",
-      "updated_at": "2016-06-14T15:02:04.569Z",
-      "state": "active",
-      "iid": 2,
-      "events": [
-        {
-          "id": 243,
-          "target_type": "Milestone",
-          "target_id": 17,
-          "title": null,
-          "data": null,
-          "project_id": 36,
-          "created_at": "2016-06-14T15:02:04.570Z",
-          "updated_at": "2016-06-14T15:02:04.570Z",
-          "action": 1,
-          "author_id": 1
-        },
-        {
-          "id": 57,
-          "target_type": "Milestone",
-          "target_id": 17,
-          "title": null,
-          "data": null,
-          "project_id": 5,
-          "created_at": "2016-06-14T15:02:04.570Z",
-          "updated_at": "2016-06-14T15:02:04.570Z",
-          "action": 1,
-          "author_id": 20
-        }
-      ]
-    },
-    {
-      "id": 16,
-      "title": "v0.0",
-      "project_id": 5,
-      "description": "Velit numquam et sed sit.",
-      "due_date": null,
-      "created_at": "2016-06-14T15:02:04.561Z",
-      "updated_at": "2016-06-14T15:02:04.561Z",
-      "state": "closed",
-      "iid": 1,
-      "events": [
-        {
-          "id": 244,
-          "target_type": "Milestone",
-          "target_id": 16,
-          "title": null,
-          "data": null,
-          "project_id": 36,
-          "created_at": "2016-06-14T15:02:04.563Z",
-          "updated_at": "2016-06-14T15:02:04.563Z",
-          "action": 1,
-          "author_id": 26
-        },
-        {
-          "id": 56,
-          "target_type": "Milestone",
-          "target_id": 16,
-          "title": null,
-          "data": null,
-          "project_id": 5,
-          "created_at": "2016-06-14T15:02:04.563Z",
-          "updated_at": "2016-06-14T15:02:04.563Z",
-          "action": 1,
-          "author_id": 26
-        }
-      ]
     }
   ],
   "snippets": [
@@ -2467,10 +2502,9 @@
       "source_project_id": 5,
       "author_id": 1,
       "assignee_id": null,
-      "title": "Cannot be automatically merged",
+      "title": "MR1",
       "created_at": "2016-06-14T15:02:36.568Z",
       "updated_at": "2016-06-14T15:02:56.815Z",
-      "milestone_id": null,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -2764,7 +2798,7 @@
             "committer_email": "dmitriy.zaporozhets@gmail.com"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "Binary files a/.DS_Store and /dev/null differ\n",
             "new_path": ".DS_Store",
@@ -2902,13 +2936,12 @@
       "id": 26,
       "target_branch": "master",
       "source_branch": "feature",
-      "source_project_id": 5,
+      "source_project_id": 4,
       "author_id": 1,
       "assignee_id": null,
-      "title": "Can be automatically merged",
+      "title": "MR2",
       "created_at": "2016-06-14T15:02:36.418Z",
       "updated_at": "2016-06-14T15:02:57.013Z",
-      "milestone_id": null,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -3137,7 +3170,7 @@
             "committer_email": "dmitriy.zaporozhets@gmail.com"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "--- /dev/null\n+++ b/files/ruby/feature.rb\n@@ -0,0 +1,5 @@\n+class Feature\n+  def foo\n+    puts 'bar'\n+  end\n+end\n",
             "new_path": "files/ruby/feature.rb",
@@ -3193,7 +3226,6 @@
       "title": "Qui accusantium et inventore facilis doloribus occaecati officiis.",
       "created_at": "2016-06-14T15:02:25.168Z",
       "updated_at": "2016-06-14T15:02:59.521Z",
-      "milestone_id": 17,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -3422,7 +3454,7 @@
             "committer_email": "james@jameslopez.es"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "--- /dev/null\n+++ b/test\n",
             "new_path": "test",
@@ -3478,7 +3510,6 @@
       "title": "In voluptas aut sequi voluptatem ullam vel corporis illum consequatur.",
       "created_at": "2016-06-14T15:02:24.760Z",
       "updated_at": "2016-06-14T15:02:59.749Z",
-      "milestone_id": 20,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -3959,7 +3990,7 @@
             "committer_email": "dmitriy.zaporozhets@gmail.com"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "Binary files a/.DS_Store and /dev/null differ\n",
             "new_path": ".DS_Store",
@@ -4169,7 +4200,6 @@
       "title": "Voluptates consequatur eius nemo amet libero animi illum delectus tempore.",
       "created_at": "2016-06-14T15:02:24.415Z",
       "updated_at": "2016-06-14T15:02:59.958Z",
-      "milestone_id": 17,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -4208,7 +4238,18 @@
             "name": "User 4"
           },
           "events": [
-
+            {
+              "id": 529,
+              "target_type": "Note",
+              "target_id": 2521,
+              "title": "test levels",
+              "data": null,
+              "project_id": 4,
+              "created_at": "2016-07-07T14:35:12.128Z",
+              "updated_at": "2016-07-07T14:35:12.128Z",
+              "action": 6,
+              "author_id": 1
+            }
           ]
         },
         {
@@ -4585,7 +4626,7 @@
             "committer_email": "marmis85@gmail.com"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "--- a/CHANGELOG\n+++ b/CHANGELOG\n@@ -1,4 +1,6 @@\n-v 6.7.0\n+v6.8.0\n+\n+v6.7.0\n   - Add support for Gemnasium as a Project Service (Olivier Gonzalez)\n   - Add edit file button to MergeRequest diff\n   - Public groups (Jason Hollingsworth)\n",
             "new_path": "CHANGELOG",
@@ -4707,7 +4748,6 @@
       "title": "In a rerum harum nihil accusamus aut quia nobis non.",
       "created_at": "2016-06-14T15:02:24.000Z",
       "updated_at": "2016-06-14T15:03:00.225Z",
-      "milestone_id": 19,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -5096,7 +5136,7 @@
             "committer_email": "stanhu@packetzoom.com"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "--- a/CHANGELOG\n+++ b/CHANGELOG\n@@ -1,4 +1,6 @@\n-v 6.7.0\n+v6.8.0\n+\n+v6.7.0\n   - Add support for Gemnasium as a Project Service (Olivier Gonzalez)\n   - Add edit file button to MergeRequest diff\n   - Public groups (Jason Hollingsworth)\n",
             "new_path": "CHANGELOG",
@@ -5207,7 +5247,6 @@
       "title": "Corporis provident similique perspiciatis dolores eos animi.",
       "created_at": "2016-06-14T15:02:23.767Z",
       "updated_at": "2016-06-14T15:03:00.475Z",
-      "milestone_id": 18,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -5422,7 +5461,7 @@
         "id": 11,
         "state": "empty",
         "st_commits": null,
-        "st_diffs": [
+        "utf8_st_diffs": [
 
         ],
         "merge_request_id": 11,
@@ -5468,7 +5507,6 @@
       "title": "Eligendi reprehenderit doloribus quia et sit id.",
       "created_at": "2016-06-14T15:02:23.014Z",
       "updated_at": "2016-06-14T15:03:00.685Z",
-      "milestone_id": 20,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -5949,7 +5987,7 @@
             "committer_email": "dmitriy.zaporozhets@gmail.com"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "Binary files a/.DS_Store and /dev/null differ\n",
             "new_path": ".DS_Store",
@@ -6159,7 +6197,6 @@
       "title": "Et ipsam voluptas velit sequi illum ut.",
       "created_at": "2016-06-14T15:02:22.825Z",
       "updated_at": "2016-06-14T15:03:00.904Z",
-      "milestone_id": 16,
       "state": "opened",
       "merge_status": "unchecked",
       "target_project_id": 5,
@@ -6388,7 +6425,7 @@
             "committer_email": "james@jameslopez.es"
           }
         ],
-        "st_diffs": [
+        "utf8_st_diffs": [
           {
             "diff": "--- /dev/null\n+++ b/test\n",
             "new_path": "test",
@@ -6554,7 +6591,7 @@
     {
       "id": 37,
       "project_id": 5,
-      "ref": "master",
+      "ref": null,
       "sha": "048721d90c449b244b7b4c53a9186b04330174ec",
       "before_sha": null,
       "push_data": null,
@@ -6948,6 +6985,7 @@
       "note_events": true,
       "build_events": true,
       "category": "issue_tracker",
+      "type": "CustomIssueTrackerService",
       "default": true,
       "wiki_page_events": true
     },
@@ -7377,6 +7415,41 @@
 
   ],
   "protected_branches": [
-
-  ]
+    {
+      "id": 1,
+      "project_id": 9,
+      "name": "master",
+      "created_at": "2016-08-30T07:32:52.426Z",
+      "updated_at": "2016-08-30T07:32:52.426Z",
+      "merge_access_levels": [
+        {
+          "id": 1,
+          "protected_branch_id": 1,
+          "access_level": 40,
+          "created_at": "2016-08-30T07:32:52.458Z",
+          "updated_at": "2016-08-30T07:32:52.458Z"
+        }
+      ],
+      "push_access_levels": [
+        {
+          "id": 1,
+          "protected_branch_id": 1,
+          "access_level": 40,
+          "created_at": "2016-08-30T07:32:52.490Z",
+          "updated_at": "2016-08-30T07:32:52.490Z"
+        }
+      ]
+    }
+  ],
+  "project_feature": {
+    "builds_access_level": 0,
+    "created_at": "2014-12-26T09:26:45.000Z",
+    "id": 2,
+    "issues_access_level": 0,
+    "merge_requests_access_level": 20,
+    "project_id": 4,
+    "snippets_access_level": 20,
+    "updated_at": "2016-09-23T11:58:28.000Z",
+    "wiki_access_level": 20
+  }
 }

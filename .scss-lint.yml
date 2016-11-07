@@ -61,7 +61,7 @@ linters:
   
   # Separate rule, function, and mixin declarations with empty lines.
   EmptyLineBetweenBlocks:
-    enabled: false
+    enabled: true
   
   # Reports when you have an empty rule set.
   EmptyRule:
@@ -79,7 +79,7 @@ linters:
   
   # HEX colors should use three-character values where possible.
   HexLength:
-    enabled: true
+    enabled: false
   
   # HEX color values should use lower-case colors to differentiate between
   # letters and numbers, e.g. `#E3E3E3` vs. `#e3e3e3`.
@@ -219,7 +219,7 @@ linters:
   # Property values, @extend, @include, and @import directives, and variable
   # declarations should always end with a semicolon.
   TrailingSemicolon:
-    enabled: false
+    enabled: true
 
   # Reports lines containing trailing whitespace.
   TrailingWhitespace:

@@ -5,38 +5,47 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   before_action :authorize_admin_project_member!, except: [:index, :leave, :request_access]
 
   def index
+    @group_links = @project.project_group_links
+
     @project_members = @project.project_members
     @project_members = @project_members.non_invite unless can?(current_user, :admin_project, @project)
 
     if params[:search].present?
       users = @project.users.search(params[:search]).to_a
       @project_members = @project_members.where(user_id: users)
+
+      @group_links = @project.project_group_links.where(group_id: @project.invited_groups.search(params[:search]).select(:id))
     end
 
-    @project_members = @project_members.order('access_level DESC')
+    @project_members = @project_members.order(access_level: :desc).page(params[:page])
 
-    @group = @project.group
-
-    if @group
-      @group_members = @group.group_members
-      @group_members = @group_members.non_invite unless can?(current_user, :admin_group, @group)
-
-      if params[:search].present?
-        users = @group.users.search(params[:search]).to_a
-        @group_members = @group_members.where(user_id: users)
-      end
-
-      @group_members = @group_members.order('access_level DESC')
-    end
-
-    @requesters = @project.requesters if can?(current_user, :admin_project, @project)
+    @requesters = AccessRequestsFinder.new(@project).execute(current_user)
 
     @project_member = @project.project_members.new
-    @project_group_links = @project.project_group_links
   end
 
   def create
-    @project.team.add_users(params[:user_ids].split(','), params[:access_level], current_user)
+    @project.team.add_users(
+      params[:user_ids].split(','),
+      params[:access_level],
+      expires_at: params[:expires_at],
+      current_user: current_user
+    )
+
+    if params[:group_ids].present?
+      group_ids = params[:group_ids].split(',')
+      groups = Group.where(id: group_ids)
+
+      groups.each do |group|
+        next unless can?(current_user, :read_group, group)
+
+        project.project_group_links.create(
+          group: group,
+          group_access: params[:access_level],
+          expires_at: params[:expires_at]
+        )
+      end
+    end
 
     redirect_to namespace_project_project_members_path(@project.namespace, @project)
   end
@@ -50,10 +59,8 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   end
 
   def destroy
-    @project_member = @project.members.find_by(id: params[:id]) ||
-      @project.requesters.find_by(id: params[:id])
-
-    Members::DestroyService.new(@project_member, current_user).execute
+    Members::DestroyService.new(@project, current_user, params).
+      execute(:all)
 
     respond_to do |format|
       format.html do
@@ -94,7 +101,7 @@ class Projects::ProjectMembersController < Projects::ApplicationController
   protected
 
   def member_params
-    params.require(:project_member).permit(:user_id, :access_level)
+    params.require(:project_member).permit(:user_id, :access_level, :expires_at)
   end
 
   # MembershipActions concern

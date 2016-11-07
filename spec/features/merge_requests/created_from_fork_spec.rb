@@ -25,23 +25,41 @@ feature 'Merge request created from fork' do
     expect(page).to have_content 'Test merge request'
   end
 
+  context 'source project is deleted' do
+    background do
+      MergeRequests::MergeService.new(project, user).execute(merge_request)
+      fork_project.destroy!
+    end
+
+    scenario 'user can access merge request' do
+      visit_merge_request(merge_request)
+
+      expect(page).to have_content 'Test merge request'
+      expect(page).to have_content "(removed):#{merge_request.source_branch}"
+    end
+  end
+
   context 'pipeline present in source project' do
     include WaitForAjax
 
     given(:pipeline) do
-      create(:ci_pipeline_with_two_job, project: fork_project,
-                                        sha: merge_request.diff_head_sha,
-                                        ref: merge_request.source_branch)
+      create(:ci_pipeline,
+             project: fork_project,
+             sha: merge_request.diff_head_sha,
+             ref: merge_request.source_branch)
     end
 
-    background { pipeline.create_builds(user) }
+    background do
+      create(:ci_build, pipeline: pipeline, name: 'rspec')
+      create(:ci_build, pipeline: pipeline, name: 'spinach')
+    end
 
     scenario 'user visits a pipelines page', js: true do
       visit_merge_request(merge_request)
       page.within('.merge-request-tabs') { click_link 'Builds' }
       wait_for_ajax
 
-      page.within('table.builds') do
+      page.within('table.ci-table') do
         expect(page).to have_content 'rspec'
         expect(page).to have_content 'spinach'
       end

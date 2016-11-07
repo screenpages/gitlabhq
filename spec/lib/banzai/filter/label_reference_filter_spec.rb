@@ -21,7 +21,7 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
 
   it 'includes default classes' do
     doc = reference_filter("Label #{reference}")
-    expect(doc.css('a').first.attr('class')).to eq 'gfm gfm-label'
+    expect(doc.css('a').first.attr('class')).to eq 'gfm gfm-label has-tooltip'
   end
 
   it 'includes a data-project attribute' do
@@ -93,8 +93,8 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
     end
 
     it 'links with adjacent text' do
-      doc = reference_filter("Label (#{reference}.)")
-      expect(doc.to_html).to match(%r(\(<a.+><span.+>#{label.name}</span></a>\.\)))
+      doc = reference_filter("Label (#{reference}).")
+      expect(doc.to_html).to match(%r(\(<a.+><span.+>#{label.name}</span></a>\)\.))
     end
 
     it 'ignores invalid label names' do
@@ -104,8 +104,8 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
     end
   end
 
-  context 'String-based single-word references with special characters' do
-    let(:label)     { create(:label, name: '?gfm&', project: project) }
+  context 'String-based single-word references that begin with a digit' do
+    let(:label)     { create(:label, name: '2fa', project: project) }
     let(:reference) { "#{Label.reference_prefix}#{label.name}" }
 
     it 'links to a valid reference' do
@@ -113,17 +113,41 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
 
       expect(doc.css('a').first.attr('href')).to eq urls.
         namespace_project_issues_url(project.namespace, project, label_name: label.name)
-      expect(doc.text).to eq 'See ?gfm&'
+      expect(doc.text).to eq 'See 2fa'
     end
 
     it 'links with adjacent text' do
-      doc = reference_filter("Label (#{reference}.)")
-      expect(doc.to_html).to match(%r(\(<a.+><span.+>\?gfm&amp;</span></a>\.\)))
+      doc = reference_filter("Label (#{reference}).")
+      expect(doc.to_html).to match(%r(\(<a.+><span.+>#{label.name}</span></a>\)\.))
+    end
+
+    it 'ignores invalid label names' do
+      exp = act = "Label #{Label.reference_prefix}#{label.id}#{label.name.reverse}"
+
+      expect(reference_filter(act).to_html).to eq exp
+    end
+  end
+
+  context 'String-based single-word references with special characters' do
+    let(:label)     { create(:label, name: '?g.fm&', project: project) }
+    let(:reference) { "#{Label.reference_prefix}#{label.name}" }
+
+    it 'links to a valid reference' do
+      doc = reference_filter("See #{reference}")
+
+      expect(doc.css('a').first.attr('href')).to eq urls.
+        namespace_project_issues_url(project.namespace, project, label_name: label.name)
+      expect(doc.text).to eq 'See ?g.fm&'
+    end
+
+    it 'links with adjacent text' do
+      doc = reference_filter("Label (#{reference}).")
+      expect(doc.to_html).to match(%r(\(<a.+><span.+>\?g\.fm&amp;</span></a>\)\.))
     end
 
     it 'ignores invalid label names' do
       act = "Label #{Label.reference_prefix}#{label.name.reverse}"
-      exp = "Label #{Label.reference_prefix}&amp;mfg?"
+      exp = "Label #{Label.reference_prefix}&amp;mf.g?"
 
       expect(reference_filter(act).to_html).to eq exp
     end
@@ -153,8 +177,8 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
     end
   end
 
-  context 'String-based multi-word references with special characters in quotes' do
-    let(:label)     { create(:label, name: 'gfm & references?', project: project) }
+  context 'String-based multi-word references that begin with a digit' do
+    let(:label)     { create(:label, name: '2 factor authentication', project: project) }
     let(:reference) { label.to_reference(format: :name) }
 
     it 'links to a valid reference' do
@@ -162,19 +186,83 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
 
       expect(doc.css('a').first.attr('href')).to eq urls.
         namespace_project_issues_url(project.namespace, project, label_name: label.name)
-      expect(doc.text).to eq 'See gfm & references?'
+      expect(doc.text).to eq 'See 2 factor authentication'
     end
 
     it 'links with adjacent text' do
       doc = reference_filter("Label (#{reference}.)")
-      expect(doc.to_html).to match(%r(\(<a.+><span.+>gfm &amp; references\?</span></a>\.\)))
+      expect(doc.to_html).to match(%r(\(<a.+><span.+>#{label.name}</span></a>\.\)))
+    end
+
+    it 'ignores invalid label names' do
+      exp = act = "Label #{Label.reference_prefix}#{label.id}#{label.name.reverse}"
+
+      expect(reference_filter(act).to_html).to eq exp
+    end
+  end
+
+  context 'String-based multi-word references with special characters in quotes' do
+    let(:label)     { create(:label, name: 'g.fm & references?', project: project) }
+    let(:reference) { label.to_reference(format: :name) }
+
+    it 'links to a valid reference' do
+      doc = reference_filter("See #{reference}")
+
+      expect(doc.css('a').first.attr('href')).to eq urls.
+        namespace_project_issues_url(project.namespace, project, label_name: label.name)
+      expect(doc.text).to eq 'See g.fm & references?'
+    end
+
+    it 'links with adjacent text' do
+      doc = reference_filter("Label (#{reference}.)")
+      expect(doc.to_html).to match(%r(\(<a.+><span.+>g\.fm &amp; references\?</span></a>\.\)))
     end
 
     it 'ignores invalid label names' do
       act = %(Label #{Label.reference_prefix}"#{label.name.reverse}")
-      exp = %(Label #{Label.reference_prefix}"?secnerefer &amp; mfg\")
+      exp = %(Label #{Label.reference_prefix}"?secnerefer &amp; mf.g\")
 
       expect(reference_filter(act).to_html).to eq exp
+    end
+  end
+
+  describe 'consecutive references' do
+    let(:bug) { create(:label, name: 'bug', project: project) }
+    let(:feature_proposal) { create(:label, name: 'feature proposal', project: project) }
+    let(:technical_debt) { create(:label, name: 'technical debt', project: project) }
+
+    let(:bug_reference) { "#{Label.reference_prefix}#{bug.name}" }
+    let(:feature_proposal_reference) { feature_proposal.to_reference(format: :name) }
+    let(:technical_debt_reference) { technical_debt.to_reference(format: :name) }
+
+    context 'separated with a comma' do
+      let(:references) { "#{bug_reference}, #{feature_proposal_reference}, #{technical_debt_reference}" }
+
+      it 'links to valid references' do
+        doc = reference_filter("See #{references}")
+
+        expect(doc.css('a').map { |a| a.attr('href') }).to match_array([
+          urls.namespace_project_issues_url(project.namespace, project, label_name: bug.name),
+          urls.namespace_project_issues_url(project.namespace, project, label_name: feature_proposal.name),
+          urls.namespace_project_issues_url(project.namespace, project, label_name: technical_debt.name)
+        ])
+        expect(doc.text).to eq 'See bug, feature proposal, technical debt'
+      end
+    end
+
+    context 'separated with a space' do
+      let(:references) { "#{bug_reference} #{feature_proposal_reference} #{technical_debt_reference}" }
+
+      it 'links to valid references' do
+        doc = reference_filter("See #{references}")
+
+        expect(doc.css('a').map { |a| a.attr('href') }).to match_array([
+          urls.namespace_project_issues_url(project.namespace, project, label_name: bug.name),
+          urls.namespace_project_issues_url(project.namespace, project, label_name: feature_proposal.name),
+          urls.namespace_project_issues_url(project.namespace, project, label_name: technical_debt.name)
+        ])
+        expect(doc.text).to eq 'See bug feature proposal technical debt'
+      end
     end
   end
 
@@ -217,6 +305,58 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
     end
   end
 
+  describe 'group label references' do
+    let(:group)       { create(:group) }
+    let(:project)     { create(:empty_project, :public, namespace: group) }
+    let(:group_label) { create(:group_label, name: 'gfm references', group: group) }
+
+    context 'without project reference' do
+      let(:reference) { group_label.to_reference(format: :name) }
+
+      it 'links to a valid reference' do
+        doc = reference_filter("See #{reference}", project: project)
+
+        expect(doc.css('a').first.attr('href')).to eq urls.
+          namespace_project_issues_url(project.namespace, project, label_name: group_label.name)
+        expect(doc.text).to eq 'See gfm references'
+      end
+
+      it 'links with adjacent text' do
+        doc = reference_filter("Label (#{reference}.)")
+        expect(doc.to_html).to match(%r(\(<a.+><span.+>#{group_label.name}</span></a>\.\)))
+      end
+
+      it 'ignores invalid label names' do
+        exp = act = %(Label #{Label.reference_prefix}"#{group_label.name.reverse}")
+
+        expect(reference_filter(act).to_html).to eq exp
+      end
+    end
+
+    context 'with project reference' do
+      let(:reference) { project.to_reference + group_label.to_reference(format: :name) }
+
+      it 'links to a valid reference' do
+        doc = reference_filter("See #{reference}", project: project)
+
+        expect(doc.css('a').first.attr('href')).to eq urls.
+          namespace_project_issues_url(project.namespace, project, label_name: group_label.name)
+        expect(doc.text).to eq 'See gfm references'
+      end
+
+      it 'links with adjacent text' do
+        doc = reference_filter("Label (#{reference}.)")
+        expect(doc.to_html).to match(%r(\(<a.+><span.+>#{group_label.name}</span></a>\.\)))
+      end
+
+      it 'ignores invalid label names' do
+        exp = act = %(Label #{project.to_reference}#{Label.reference_prefix}"#{group_label.name.reverse}")
+
+        expect(reference_filter(act).to_html).to eq exp
+      end
+    end
+  end
+
   describe 'cross project label references' do
     context 'valid project referenced' do
       let(:another_project)  { create(:empty_project, :public) }
@@ -248,6 +388,36 @@ describe Banzai::Filter::LabelReferenceFilter, lib: true do
 
       it 'does not link reference' do
         expect(result.to_html).to eq 'aaa/bbb~ccc'
+      end
+    end
+  end
+
+  describe 'cross group label references' do
+    context 'valid project referenced' do
+      let(:group) { create(:group) }
+      let(:project) { create(:empty_project, :public, namespace: group) }
+      let(:another_group) { create(:group) }
+      let(:another_project)  { create(:empty_project, :public, namespace: another_group) }
+      let(:project_name) { another_project.name_with_namespace }
+      let(:group_label) { create(:group_label, group: another_group, color: '#00ff00') }
+      let(:reference) { another_project.to_reference + group_label.to_reference }
+
+      let!(:result) { reference_filter("See #{reference}", project: project) }
+
+      it 'points to referenced project issues page' do
+        expect(result.css('a').first.attr('href'))
+          .to eq urls.namespace_project_issues_url(another_project.namespace,
+                                                   another_project,
+                                                   label_name: group_label.name)
+      end
+
+      it 'has valid color' do
+        expect(result.css('a span').first.attr('style'))
+          .to match /background-color: #00ff00/
+      end
+
+      it 'contains cross project content' do
+        expect(result.css('a').first.text).to eq "#{group_label.name} in #{project_name}"
       end
     end
   end

@@ -86,14 +86,11 @@ module API
           render_api_error!({ labels: errors }, 400)
         end
 
+        attrs[:labels] = params[:labels] if params[:labels]
+
         merge_request = ::MergeRequests::CreateService.new(user_project, current_user, attrs).execute
 
         if merge_request.valid?
-          # Find or create labels and attach to issue
-          if params[:labels].present?
-            merge_request.add_labels_by_names(params[:labels].split(","))
-          end
-
           present merge_request, with: Entities::MergeRequest, current_user: current_user
         else
           handle_merge_request_errors! merge_request.errors
@@ -195,15 +192,11 @@ module API
             render_api_error!({ labels: errors }, 400)
           end
 
+          attrs[:labels] = params[:labels] if params[:labels]
+
           merge_request = ::MergeRequests::UpdateService.new(user_project, current_user, attrs).execute(merge_request)
 
           if merge_request.valid?
-            # Find or create labels and attach to issue
-            unless params[:labels].nil?
-              merge_request.remove_labels
-              merge_request.add_labels_by_names(params[:labels].split(","))
-            end
-
             present merge_request, with: Entities::MergeRequest, current_user: current_user
           else
             handle_merge_request_errors! merge_request.errors
@@ -242,7 +235,7 @@ module API
             should_remove_source_branch: params[:should_remove_source_branch]
           }
 
-          if parse_boolean(params[:merge_when_build_succeeds]) && merge_request.pipeline && merge_request.pipeline.active?
+          if to_boolean(params[:merge_when_build_succeeds]) && merge_request.pipeline && merge_request.pipeline.active?
             ::MergeRequests::MergeWhenBuildSucceedsService.new(merge_request.target_project, current_user, merge_params).
               execute(merge_request)
           else

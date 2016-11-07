@@ -5,21 +5,9 @@ module SelectsHelper
     css_class << "skip_ldap " if opts[:skip_ldap]
     css_class << (opts[:class] || '')
     value = opts[:selected] || ''
-
-    first_user = opts[:first_user] && current_user ? current_user.username : false
-
     html = {
       class: css_class,
-      data: {
-        placeholder: opts[:placeholder]   || 'Search for a user',
-        null_user: opts[:null_user]       || false,
-        any_user: opts[:any_user]         || false,
-        email_user: opts[:email_user]     || false,
-        first_user: first_user,
-        current_user: opts[:current_user] || false,
-        "push-code-to-protected-branches" => opts[:push_code_to_protected_branches],
-        author_id: opts[:author_id] || ''
-      }
+      data: users_select_data_attributes(opts)
     }
 
     unless opts[:scope] == :all
@@ -61,11 +49,25 @@ module SelectsHelper
   end
 
   def select2_tag(id, opts = {})
-    css_class = ''
-    css_class << 'multiselect ' if opts[:multiple]
-    css_class << (opts[:class] || '')
+    opts[:class] << ' multiselect' if opts[:multiple]
     value = opts[:selected] || ''
 
-    hidden_field_tag(id, value, class: css_class)
+    hidden_field_tag(id, value, opts)
+  end
+
+  private
+
+  def users_select_data_attributes(opts)
+    {
+      placeholder: opts[:placeholder]   || 'Search for a user',
+      null_user: opts[:null_user]       || false,
+      any_user: opts[:any_user]         || false,
+      email_user: opts[:email_user]     || false,
+      first_user: opts[:first_user] && current_user ? current_user.username : false,
+      current_user: opts[:current_user] || false,
+      "push-code-to-protected-branches" => opts[:push_code_to_protected_branches],
+      author_id: opts[:author_id] || '',
+      skip_users: opts[:skip_users] ? opts[:skip_users].map(&:id) : nil,
+    }
   end
 end

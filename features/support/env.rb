@@ -1,6 +1,5 @@
-if ENV['SIMPLECOV']
-  require 'simplecov'
-end
+require './spec/simplecov_env'
+SimpleCovEnv.start!
 
 ENV['RAILS_ENV'] = 'test'
 require './config/environment'
@@ -13,10 +12,10 @@ require_relative 'rerun'
 
 if ENV['CI']
   require 'knapsack'
-  Knapsack::Adapters::RSpecAdapter.bind
+  Knapsack::Adapters::SpinachAdapter.bind
 end
 
-%w(select2_helper test_env repo_helpers).each do |f|
+%w(select2_helper test_env repo_helpers wait_for_ajax).each do |f|
   require Rails.root.join('spec', 'support', f)
 end
 

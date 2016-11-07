@@ -1,7 +1,5 @@
-if ENV['SIMPLECOV']
-  require 'simplecov'
-  SimpleCov.start :rails
-end
+require './spec/simplecov_env'
+SimpleCovEnv.start!
 
 ENV["RAILS_ENV"] ||= 'test'
 
@@ -28,14 +26,14 @@ RSpec.configure do |config|
   config.verbose_retry = true
   config.display_try_failure_messages = true
 
-  config.include Devise::TestHelpers, type: :controller
-  config.include LoginHelpers,        type: :feature
-  config.include LoginHelpers,        type: :request
+  config.include Devise::Test::ControllerHelpers,   type: :controller
+  config.include Warden::Test::Helpers, type: :request
+  config.include LoginHelpers,          type: :feature
   config.include StubConfiguration
   config.include EmailHelpers
-  config.include RelativeUrl,         type: feature
   config.include TestEnv
   config.include ActiveJob::TestHelper
+  config.include ActiveSupport::Testing::TimeHelpers
   config.include StubGitlabCalls
   config.include StubGitlabData
 
@@ -44,6 +42,19 @@ RSpec.configure do |config|
 
   config.before(:suite) do
     TestEnv.init
+  end
+
+  config.around(:each, :caching) do |example|
+    caching_store = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new if example.metadata[:caching]
+    example.run
+    Rails.cache = caching_store
+  end
+
+  config.around(:each, :redis) do |example|
+    Gitlab::Redis.with(&:flushall)
+    example.run
+    Gitlab::Redis.with(&:flushall)
   end
 end
 

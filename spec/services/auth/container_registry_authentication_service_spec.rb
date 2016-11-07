@@ -6,8 +6,14 @@ describe Auth::ContainerRegistryAuthenticationService, services: true do
   let(:current_params) { {} }
   let(:rsa_key) { OpenSSL::PKey::RSA.generate(512) }
   let(:payload) { JWT.decode(subject[:token], rsa_key).first }
+  let(:authentication_abilities) do
+    [
+      :read_container_image,
+      :create_container_image
+    ]
+  end
 
-  subject { described_class.new(current_project, current_user, current_params).execute }
+  subject { described_class.new(current_project, current_user, current_params).execute(authentication_abilities: authentication_abilities) }
 
   before do
     allow(Gitlab.config.registry).to receive_messages(enabled: true, issuer: 'rspec', key: nil)
@@ -87,60 +93,123 @@ describe Auth::ContainerRegistryAuthenticationService, services: true do
   end
 
   context 'user authorization' do
-    let(:project) { create(:project) }
     let(:current_user) { create(:user) }
 
-    context 'allow to use scope-less authentication' do
-      it_behaves_like 'a valid token'
-    end
+    context 'for private project' do
+      let(:project) { create(:empty_project) }
 
-    context 'allow developer to push images' do
-      before { project.team << [current_user, :developer] }
-
-      let(:current_params) do
-        { scope: "repository:#{project.path_with_namespace}:push" }
+      context 'allow to use scope-less authentication' do
+        it_behaves_like 'a valid token'
       end
 
-      it_behaves_like 'a pushable'
-    end
+      context 'allow developer to push images' do
+        before { project.team << [current_user, :developer] }
 
-    context 'allow reporter to pull images' do
-      before { project.team << [current_user, :reporter] }
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:push" }
+        end
 
-      let(:current_params) do
-        { scope: "repository:#{project.path_with_namespace}:pull" }
+        it_behaves_like 'a pushable'
       end
 
-      it_behaves_like 'a pullable'
-    end
+      context 'allow reporter to pull images' do
+        before { project.team << [current_user, :reporter] }
 
-    context 'return a least of privileges' do
-      before { project.team << [current_user, :reporter] }
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:pull" }
+        end
 
-      let(:current_params) do
-        { scope: "repository:#{project.path_with_namespace}:push,pull" }
+        it_behaves_like 'a pullable'
       end
 
-      it_behaves_like 'a pullable'
-    end
+      context 'return a least of privileges' do
+        before { project.team << [current_user, :reporter] }
 
-    context 'disallow guest to pull or push images' do
-      before { project.team << [current_user, :guest] }
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:push,pull" }
+        end
 
-      let(:current_params) do
-        { scope: "repository:#{project.path_with_namespace}:pull,push" }
+        it_behaves_like 'a pullable'
       end
 
-      it_behaves_like 'an inaccessible'
+      context 'disallow guest to pull or push images' do
+        before { project.team << [current_user, :guest] }
+
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:pull,push" }
+        end
+
+        it_behaves_like 'an inaccessible'
+      end
+    end
+
+    context 'for public project' do
+      let(:project) { create(:empty_project, :public) }
+
+      context 'allow anyone to pull images' do
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:pull" }
+        end
+
+        it_behaves_like 'a pullable'
+      end
+
+      context 'disallow anyone to push images' do
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:push" }
+        end
+
+        it_behaves_like 'an inaccessible'
+      end
+    end
+
+    context 'for internal project' do
+      let(:project) { create(:empty_project, :internal) }
+
+      context 'for internal user' do
+        context 'allow anyone to pull images' do
+          let(:current_params) do
+            { scope: "repository:#{project.path_with_namespace}:pull" }
+          end
+
+          it_behaves_like 'a pullable'
+        end
+
+        context 'disallow anyone to push images' do
+          let(:current_params) do
+            { scope: "repository:#{project.path_with_namespace}:push" }
+          end
+
+          it_behaves_like 'an inaccessible'
+        end
+      end
+
+      context 'for external user' do
+        let(:current_user) { create(:user, external: true) }
+        let(:current_params) do
+          { scope: "repository:#{project.path_with_namespace}:pull,push" }
+        end
+
+        it_behaves_like 'an inaccessible'
+      end
     end
   end
 
-  context 'project authorization' do
+  context 'build authorized as user' do
     let(:current_project) { create(:empty_project) }
-
-    context 'allow to use scope-less authentication' do
-      it_behaves_like 'a valid token'
+    let(:current_user) { create(:user) }
+    let(:authentication_abilities) do
+      [
+        :build_read_container_image,
+        :build_create_container_image
+      ]
     end
+
+    before do
+      current_project.team << [current_user, :developer]
+    end
+
+    it_behaves_like 'a valid token'
 
     context 'allow to pull and push images' do
       let(:current_params) do
@@ -160,12 +229,44 @@ describe Auth::ContainerRegistryAuthenticationService, services: true do
 
         context 'allow for public' do
           let(:project) { create(:empty_project, :public) }
+
           it_behaves_like 'a pullable'
         end
 
-        context 'disallow for private' do
+        shared_examples 'pullable for being team member' do
+          context 'when you are not member' do
+            it_behaves_like 'an inaccessible'
+          end
+
+          context 'when you are member' do
+            before do
+              project.team << [current_user, :developer]
+            end
+
+            it_behaves_like 'a pullable'
+          end
+        end
+
+        context 'for private' do
           let(:project) { create(:empty_project, :private) }
-          it_behaves_like 'an inaccessible'
+
+          it_behaves_like 'pullable for being team member'
+
+          context 'when you are admin' do
+            let(:current_user) { create(:admin) }
+
+            context 'when you are not member' do
+              it_behaves_like 'an inaccessible'
+            end
+
+            context 'when you are member' do
+              before do
+                project.team << [current_user, :developer]
+              end
+
+              it_behaves_like 'a pullable'
+            end
+          end
         end
       end
 
@@ -176,6 +277,11 @@ describe Auth::ContainerRegistryAuthenticationService, services: true do
 
         context 'disallow for all' do
           let(:project) { create(:empty_project, :public) }
+
+          before do
+            project.team << [current_user, :developer]
+          end
+
           it_behaves_like 'an inaccessible'
         end
       end
